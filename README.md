@@ -212,6 +212,17 @@ powershell -ExecutionPolicy Bypass -File .\run_benchmark.ps1  # Windows
 
 *All benchmarks run on release build, single core.*
 
+## Status
+
+- [x] Core engine (phrase + fuzzy search)
+- [x] Benchmarks
+- [x] Query parser (natural language → search phrases)
+- [x] Llama.cpp integration (tested with Qwen3VL-4B)
+- [x] Hybrid search (BM25 + Vibe Index)
+- [x] vLLM integration (hybrid search, context budget, output validation, confidence feedback)
+- [x] Hot/Cold layer split (in-memory hot buffer + disk-based cold storage)
+- [ ] Persistent storage
+
 ## Contributing
 
 We welcome contributions! Please:
