@@ -1,11 +1,11 @@
+use std::fs;
+use std::path::Path;
+use std::time::Instant;
+use vibe_index::bm25::Bm25Index;
+use vibe_index::query_parser::parse_query;
 /// Benchmark: VibeIndex vs BM25 — Codebase Edition
 /// Compares retrieval quality (recall), speed, and memory footprint
 use vibe_index::VibeIndex;
-use vibe_index::query_parser::parse_query;
-use vibe_index::bm25::Bm25Index;
-use std::time::Instant;
-use std::fs;
-use std::path::Path;
 
 type DocTokens = (String, Vec<String>);
 type QueryResult = (String, bool, String);
@@ -44,7 +44,8 @@ fn scan_rust_files(base_path: &str) -> Vec<DocTokens> {
                     if let Ok(content) = fs::read_to_string(&path) {
                         let tokens = tokenize_source(&content);
                         if !tokens.is_empty() {
-                            let rel_path = path.strip_prefix(base)
+                            let rel_path = path
+                                .strip_prefix(base)
                                 .unwrap_or(&path)
                                 .to_string_lossy()
                                 .replace('\\', "/");
@@ -85,26 +86,86 @@ fn get_realistic_codebase() -> Vec<DocTokens> {
 /// Build ground truth queries based on actix-web source file patterns
 fn get_ground_truth() -> Vec<(String, Vec<String>)> {
     vec![
-        ("web request handler".to_string(), vec!["handler".to_string(), "extract".to_string()]),
-        ("http response builder".to_string(), vec!["response".to_string(), "builder".to_string()]),
-        ("middleware layer".to_string(), vec!["middleware".to_string(), "layer".to_string()]),
-        ("state management".to_string(), vec!["state".to_string(), "Data".to_string()]),
-        ("route matching".to_string(), vec!["route".to_string(), "resource".to_string()]),
-        ("error handling".to_string(), vec!["error".to_string(), "Error".to_string()]),
-        ("async function".to_string(), vec!["async".to_string(), "fn".to_string()]),
-        ("websocket connection".to_string(), vec!["websocket".to_string(), "ws".to_string()]),
-        ("multipart form data".to_string(), vec!["multipart".to_string(), "form".to_string()]),
-        ("http server configuration".to_string(), vec!["server".to_string(), "bind".to_string()]),
-        ("request extraction".to_string(), vec!["extract".to_string(), "FromRequest".to_string()]),
-        ("response responder".to_string(), vec!["Responder".to_string(), "HttpResponse".to_string()]),
-        ("service middleware".to_string(), vec!["Service".to_string(), "ServiceBuilder".to_string()]),
-        ("connection pool".to_string(), vec!["pool".to_string(), "Connection".to_string()]),
-        ("tls ssl configuration".to_string(), vec!["tls".to_string(), "rustls".to_string()]),
-        ("compression middleware".to_string(), vec!["compress".to_string(), "gzip".to_string()]),
-        ("rate limiting".to_string(), vec!["rate".to_string(), "limit".to_string()]),
-        ("cookie management".to_string(), vec!["cookie".to_string(), "Cookie".to_string()]),
-        ("query string parsing".to_string(), vec!["query".to_string(), "QueryString".to_string()]),
-        ("json serialization".to_string(), vec!["Json".to_string(), "serde".to_string()]),
+        (
+            "web request handler".to_string(),
+            vec!["handler".to_string(), "extract".to_string()],
+        ),
+        (
+            "http response builder".to_string(),
+            vec!["response".to_string(), "builder".to_string()],
+        ),
+        (
+            "middleware layer".to_string(),
+            vec!["middleware".to_string(), "layer".to_string()],
+        ),
+        (
+            "state management".to_string(),
+            vec!["state".to_string(), "Data".to_string()],
+        ),
+        (
+            "route matching".to_string(),
+            vec!["route".to_string(), "resource".to_string()],
+        ),
+        (
+            "error handling".to_string(),
+            vec!["error".to_string(), "Error".to_string()],
+        ),
+        (
+            "async function".to_string(),
+            vec!["async".to_string(), "fn".to_string()],
+        ),
+        (
+            "websocket connection".to_string(),
+            vec!["websocket".to_string(), "ws".to_string()],
+        ),
+        (
+            "multipart form data".to_string(),
+            vec!["multipart".to_string(), "form".to_string()],
+        ),
+        (
+            "http server configuration".to_string(),
+            vec!["server".to_string(), "bind".to_string()],
+        ),
+        (
+            "request extraction".to_string(),
+            vec!["extract".to_string(), "FromRequest".to_string()],
+        ),
+        (
+            "response responder".to_string(),
+            vec!["Responder".to_string(), "HttpResponse".to_string()],
+        ),
+        (
+            "service middleware".to_string(),
+            vec!["Service".to_string(), "ServiceBuilder".to_string()],
+        ),
+        (
+            "connection pool".to_string(),
+            vec!["pool".to_string(), "Connection".to_string()],
+        ),
+        (
+            "tls ssl configuration".to_string(),
+            vec!["tls".to_string(), "rustls".to_string()],
+        ),
+        (
+            "compression middleware".to_string(),
+            vec!["compress".to_string(), "gzip".to_string()],
+        ),
+        (
+            "rate limiting".to_string(),
+            vec!["rate".to_string(), "limit".to_string()],
+        ),
+        (
+            "cookie management".to_string(),
+            vec!["cookie".to_string(), "Cookie".to_string()],
+        ),
+        (
+            "query string parsing".to_string(),
+            vec!["query".to_string(), "QueryString".to_string()],
+        ),
+        (
+            "json serialization".to_string(),
+            vec!["Json".to_string(), "serde".to_string()],
+        ),
     ]
 }
 
@@ -112,7 +173,8 @@ fn build_documents() -> Vec<DocTokens> {
     vec![
         (
             "query_parser.rs".into(),
-            tokenize_source(r#"
+            tokenize_source(
+                r#"
 use std::collections::HashSet;
 
 pub const ENGLISH_STOP_WORDS: &[&str] = &[
@@ -246,11 +308,13 @@ pub fn parse_query(query: &str) -> Vec<Vec<String>> {
     }
     phrases
 }
-            "#),
+            "#,
+            ),
         ),
         (
             "bm25.rs".into(),
-            tokenize_source(r#"
+            tokenize_source(
+                r#"
 use std::collections::HashMap;
 
 pub struct BM25Index {
@@ -321,11 +385,13 @@ impl BM25Index {
         scores
     }
 }
-            "#),
+            "#,
+            ),
         ),
         (
             "llama_cpp.rs".into(),
-            tokenize_source(r#"
+            tokenize_source(
+                r#"
 use crate::VibeIndex;
 use crate::MatchResult;
 use std::time::Instant;
@@ -430,11 +496,13 @@ pub mod templates {
     pub const BUGFIND_PROMPT: &str = "You are a code debugging assistant.";
     pub const DOCS_PROMPT: &str = "You are a documentation assistant.";
 }
-            "#),
+            "#,
+            ),
         ),
         (
             "middleware_pattern.rs".into(),
-            tokenize_source(r#"
+            tokenize_source(
+                r#"
 use std::sync::Arc;
 use std::collections::HashMap;
 
@@ -537,11 +605,13 @@ impl DatabasePool {
         conn.execute("INSERT INTO users (name, email) VALUES ($1, $2)", &[&user.name, &user.email]).await
     }
 }
-            "#),
+            "#,
+            ),
         ),
         (
             "error_types.rs".into(),
-            tokenize_source(r#"
+            tokenize_source(
+                r#"
 use std::fmt;
 use std::error::Error as StdError;
 
@@ -634,11 +704,13 @@ pub fn validate_email(email: &str) -> Result<(), AuthError> {
     }
     Ok(())
 }
-            "#),
+            "#,
+            ),
         ),
         (
             "handlers.rs".into(),
-            tokenize_source(r#"
+            tokenize_source(
+                r#"
 use actix_web::{web, HttpResponse, Responder};
 
 pub struct CreateUserRequest {
@@ -715,11 +787,13 @@ pub fn configure_routes(config: &mut web::ServiceConfig) {
 pub async fn health_check() -> impl Responder {
     HttpResponse::Ok().Json(json!({"status": "ok"}))
 }
-            "#),
+            "#,
+            ),
         ),
         (
             "middleware_chain.rs".into(),
-            tokenize_source(r#"
+            tokenize_source(
+                r#"
 use tower::ServiceBuilder;
 use tower::Layer;
 
@@ -769,11 +843,13 @@ pub fn build_api_router() -> Router {
         .route("/api/v1/health", web::get().to(health_check))
         .with_state(AppState::new())
 }
-            "#),
+            "#,
+            ),
         ),
         (
             "cache.rs".into(),
-            tokenize_source(r#"
+            tokenize_source(
+                r#"
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -858,14 +934,13 @@ impl<T: Clone> Cache<T> {
         store.len()
     }
 }
-            "#),
+            "#,
+            ),
         ),
     ]
 }
 
-fn run_vibe_index_benchmark(
-    codebase: &[DocTokens],
-) -> ViBenchmarkResult {
+fn run_vibe_index_benchmark(codebase: &[DocTokens]) -> ViBenchmarkResult {
     let mut index = VibeIndex::new();
     let mut position_to_doc: Vec<(usize, String)> = Vec::new();
 
@@ -910,7 +985,9 @@ fn run_vibe_index_benchmark(
                     }
                 }
             }
-            if found { break; }
+            if found {
+                break;
+            }
         }
 
         if found {
@@ -929,12 +1006,18 @@ fn run_vibe_index_benchmark(
 
     let precision = if total_tp > 0 { 1.0 } else { 0.0 };
 
-    (recall, precision, total_time / ground_truth.len() as f64, ground_truth.len(), results_detail, vi_memory, total_results)
+    (
+        recall,
+        precision,
+        total_time / ground_truth.len() as f64,
+        ground_truth.len(),
+        results_detail,
+        vi_memory,
+        total_results,
+    )
 }
 
-fn run_bm25_benchmark(
-    codebase: &[DocTokens],
-) -> Bm25BenchmarkResult {
+fn run_bm25_benchmark(codebase: &[DocTokens]) -> Bm25BenchmarkResult {
     let mut index = Bm25Index::new();
     let mut all_tokens = Vec::new();
 
@@ -988,13 +1071,19 @@ fn run_bm25_benchmark(
                                     }
                                 }
                             }
-                            if found { break; }
+                            if found {
+                                break;
+                            }
                         }
                     }
-                    if found { break; }
+                    if found {
+                        break;
+                    }
                 }
             }
-            if found { break; }
+            if found {
+                break;
+            }
         }
 
         let elapsed = start.elapsed().as_secs_f64();
@@ -1016,11 +1105,22 @@ fn run_bm25_benchmark(
 
     let precision = if total_tp > 0 { 1.0 } else { 0.0 };
 
-    (recall, precision, total_time / ground_truth.len() as f64, ground_truth.len(), results_detail, bm25_memory)
+    (
+        recall,
+        precision,
+        total_time / ground_truth.len() as f64,
+        ground_truth.len(),
+        results_detail,
+        bm25_memory,
+    )
 }
 
 fn min(a: usize, b: usize) -> usize {
-    if a < b { a } else { b }
+    if a < b {
+        a
+    } else {
+        b
+    }
 }
 
 fn main() {
@@ -1043,7 +1143,8 @@ fn main() {
 
     let total_tokens: usize = codebase.iter().map(|(_, t)| t.len()).sum();
     let total_bytes: usize = codebase.iter().map(|(name, _)| name.len()).sum();
-    let unique_files: std::collections::HashSet<&str> = codebase.iter().map(|(n, _)| n.as_str()).collect();
+    let unique_files: std::collections::HashSet<&str> =
+        codebase.iter().map(|(n, _)| n.as_str()).collect();
 
     println!("Codebase: {} documents (Rust source files)", codebase.len());
     println!("Total tokens: {} (across all files)", total_tokens);
@@ -1072,8 +1173,11 @@ fn main() {
         }
     }
     let warmup_vi_time = warmup_start.elapsed();
-    println!("  VibeIndex built in {}ms ({} unique tokens)",
-        warmup_vi_time.as_millis(), warmup_index.unique_tokens());
+    println!(
+        "  VibeIndex built in {}ms ({} unique tokens)",
+        warmup_vi_time.as_millis(),
+        warmup_index.unique_tokens()
+    );
 
     let warmup_start = Instant::now();
     let mut warmup_bm25 = Bm25Index::new();
@@ -1098,15 +1202,41 @@ fn main() {
     println!("  Recall:     {:.1}%", vi_recall * 100.0);
     println!("  Precision:  {:.1}%", vi_precision * 100.0);
     println!("  Avg time:   {:.2}ms per query", vi_time * 1000.0);
-    println!("  Total time: {:.2}ms for {} queries", vi_time * vi_queries as f64 * 1000.0, vi_queries);
-    println!(" Hits:       {}/{}", vi_details.iter().filter(|(_, ok, _)| *ok).count(), vi_details.len());
-    println!("  Memory:     {} bytes ({:.2} KB)", vi_memory, vi_memory as f64 / 1024.0);
-    let avg_results = vi_queries.checked_div(vi_queries).map_or(0, |q| if q > 0 { total_vi_results / vi_queries } else { 0 });
+    println!(
+        "  Total time: {:.2}ms for {} queries",
+        vi_time * vi_queries as f64 * 1000.0,
+        vi_queries
+    );
+    println!(
+        " Hits:       {}/{}",
+        vi_details.iter().filter(|(_, ok, _)| *ok).count(),
+        vi_details.len()
+    );
+    println!(
+        "  Memory:     {} bytes ({:.2} KB)",
+        vi_memory,
+        vi_memory as f64 / 1024.0
+    );
+    let avg_results = vi_queries.checked_div(vi_queries).map_or(0, |q| {
+        if q > 0 {
+            total_vi_results / vi_queries
+        } else {
+            0
+        }
+    });
     let avg_context_tokens = avg_results * 30;
     let avg_code_tokens = avg_results * 200;
     println!("  Avg results/query: {}", avg_results);
-    println!("  Est LLM context (context strings only): ~{} tokens (~{} MB KV cache)", avg_context_tokens, avg_context_tokens * 25 / 1024 / 1024);
-    println!("  Est LLM context (with code snippets): ~{} tokens (~{} MB KV cache)", avg_context_tokens + avg_code_tokens, (avg_context_tokens + avg_code_tokens) * 25 / 1024 / 1024);
+    println!(
+        "  Est LLM context (context strings only): ~{} tokens (~{} MB KV cache)",
+        avg_context_tokens,
+        avg_context_tokens * 25 / 1024 / 1024
+    );
+    println!(
+        "  Est LLM context (with code snippets): ~{} tokens (~{} MB KV cache)",
+        avg_context_tokens + avg_code_tokens,
+        (avg_context_tokens + avg_code_tokens) * 25 / 1024 / 1024
+    );
     println!();
 
     println!("-----------------------------------------------------------");
@@ -1117,17 +1247,37 @@ fn main() {
     println!("  Recall:     {:.1}%", bm25_recall * 100.0);
     println!("  Precision:  {:.1}%", bm25_precision * 100.0);
     println!("  Avg time:   {:.2}ms per query", bm25_time * 1000.0);
-    println!("  Total time: {:.2}ms for {} queries", bm25_time * bm25_queries as f64 * 1000.0, bm25_queries);
-    println!("  Hits:       {}/{}", bm25_details.iter().filter(|(_, ok, _)| *ok).count(), bm25_details.len());
-    println!("  Memory:     {} bytes ({:.2} KB)", bm25_memory, bm25_memory as f64 / 1024.0);
+    println!(
+        "  Total time: {:.2}ms for {} queries",
+        bm25_time * bm25_queries as f64 * 1000.0,
+        bm25_queries
+    );
+    println!(
+        "  Hits:       {}/{}",
+        bm25_details.iter().filter(|(_, ok, _)| *ok).count(),
+        bm25_details.len()
+    );
+    println!(
+        "  Memory:     {} bytes ({:.2} KB)",
+        bm25_memory,
+        bm25_memory as f64 / 1024.0
+    );
     println!();
 
     println!("-----------------------------------------------------------");
     println!("  MEMORY FOOTPRINT");
     println!("-----------------------------------------------------------");
     println!();
-    println!("  VibeIndex:  {:>12} bytes  ({:>8.2} KB)", vi_memory, vi_memory as f64 / 1024.0);
-    println!("  BM25:       {:>12} bytes  ({:>8.2} KB)", bm25_memory, bm25_memory as f64 / 1024.0);
+    println!(
+        "  VibeIndex:  {:>12} bytes  ({:>8.2} KB)",
+        vi_memory,
+        vi_memory as f64 / 1024.0
+    );
+    println!(
+        "  BM25:       {:>12} bytes  ({:>8.2} KB)",
+        bm25_memory,
+        bm25_memory as f64 / 1024.0
+    );
 
     let memory_ratio = if bm25_memory > 0 {
         vi_memory as f64 / bm25_memory as f64
@@ -1137,11 +1287,17 @@ fn main() {
 
     println!();
     if vi_memory < bm25_memory {
-        println!("  VibeIndex uses {:.1}x LESS memory than BM25", bm25_memory as f64 / vi_memory as f64);
+        println!(
+            "  VibeIndex uses {:.1}x LESS memory than BM25",
+            bm25_memory as f64 / vi_memory as f64
+        );
         println!("  Roaring Bitmaps provide excellent compression");
         println!("  Positional data stored as compressed bitmaps");
     } else if vi_memory > bm25_memory * 3 {
-        println!("  VibeIndex uses {:.1}x MORE memory than BM25", memory_ratio);
+        println!(
+            "  VibeIndex uses {:.1}x MORE memory than BM25",
+            memory_ratio
+        );
         println!("  Trade-off: more memory for better recall");
         println!("  Each position stored as compressed bitmap (Roaring)");
         println!("  Scales better than BM25 on large corpora");
@@ -1164,7 +1320,11 @@ fn main() {
     let recall_ratio = if bm25_recall > 0.0 {
         vi_recall / bm25_recall
     } else {
-        if vi_recall > 0.0 { 999.0 } else { 1.0 }
+        if vi_recall > 0.0 {
+            999.0
+        } else {
+            1.0
+        }
     };
 
     let speed_ratio = if bm25_time > 0.0 {
@@ -1177,12 +1337,33 @@ fn main() {
 
     println!();
     println!("  RECALL:");
-    println!("    VibeIndex: {:.1}%  {}", vi_recall * 100.0,
-        if vi_recall >= bm25_recall { "WIN" } else { "LOSS" });
-    println!("    BM25:      {:.1}%  {}", bm25_recall * 100.0,
-        if bm25_recall >= vi_recall { "WIN" } else { "LOSS" });
-    println!("    Ratio:     VibeIndex is {:.2}x {}", recall_ratio,
-        if recall_ratio >= 1.0 { "better" } else { "worse" });
+    println!(
+        "    VibeIndex: {:.1}%  {}",
+        vi_recall * 100.0,
+        if vi_recall >= bm25_recall {
+            "WIN"
+        } else {
+            "LOSS"
+        }
+    );
+    println!(
+        "    BM25:      {:.1}%  {}",
+        bm25_recall * 100.0,
+        if bm25_recall >= vi_recall {
+            "WIN"
+        } else {
+            "LOSS"
+        }
+    );
+    println!(
+        "    Ratio:     VibeIndex is {:.2}x {}",
+        recall_ratio,
+        if recall_ratio >= 1.0 {
+            "better"
+        } else {
+            "worse"
+        }
+    );
 
     println!();
     println!("  SPEED (avg time per query):");
@@ -1209,8 +1390,10 @@ fn main() {
     println!("  PER-QUERY BREAKDOWN");
     println!("-----------------------------------------------------------");
     println!();
-    println!("  {:<32} {:>6} {:>8}  {:>6} {:>8}",
-        "Query", "VI", "File", "BM25", "File");
+    println!(
+        "  {:<32} {:>6} {:>8}  {:>6} {:>8}",
+        "Query", "VI", "File", "BM25", "File"
+    );
     println!("  --------------------------------------------------------------------------------------------");
 
     for i in 0..vi_details.len() {
@@ -1221,34 +1404,38 @@ fn main() {
         let bm25_file = &bm25_details[i].2;
 
         let vi_file_short = if vi_file.len() > 16 {
-            format!("...{}", &vi_file[vi_file.len()-13..])
+            format!("...{}", &vi_file[vi_file.len() - 13..])
         } else {
             vi_file.clone()
         };
         let bm25_file_short = if bm25_file.len() > 16 {
-            format!("...{}", &bm25_file[bm25_file.len()-13..])
+            format!("...{}", &bm25_file[bm25_file.len() - 13..])
         } else {
             bm25_file.clone()
         };
 
         let marker = if vi_ok != bm25_ok { " <-- DIFF" } else { "" };
-        println!("  {:<32} {:>6} {:>18}  {:>6} {:>18}{}",
+        println!(
+            "  {:<32} {:>6} {:>18}  {:>6} {:>18}{}",
             &query[..min(query.len(), 32)],
             if vi_ok { "HIT" } else { "MISS" },
             if vi_ok { &vi_file_short } else { "------" },
             if bm25_ok { "HIT" } else { "MISS" },
             if bm25_ok { &bm25_file_short } else { "------" },
-            marker);
+            marker
+        );
     }
     println!();
 
-    let vi_only: Vec<(&String, &String)> = vi_details.iter()
+    let vi_only: Vec<(&String, &String)> = vi_details
+        .iter()
         .zip(bm25_details.iter())
         .filter(|((_, vi_ok, _), (_, bm25_ok, _))| *vi_ok && !bm25_ok)
         .map(|((q, _, f), _)| (q, f))
         .collect();
 
-    let bm25_only: Vec<(&String, &String)> = vi_details.iter()
+    let bm25_only: Vec<(&String, &String)> = vi_details
+        .iter()
         .zip(bm25_details.iter())
         .filter(|((_, vi_ok, _), (_, bm25_ok, _))| !*vi_ok && *bm25_ok)
         .map(|((q, _, f), _)| (q, f))
@@ -1260,7 +1447,10 @@ fn main() {
     println!();
 
     if !vi_only.is_empty() {
-        println!("  VibeIndex FOUND ({} queries) - BM25 MISSED:", vi_only.len());
+        println!(
+            "  VibeIndex FOUND ({} queries) - BM25 MISSED:",
+            vi_only.len()
+        );
         for (q, f) in &vi_only {
             println!("    {} -> {}", q, f);
         }
@@ -1268,14 +1458,19 @@ fn main() {
     }
 
     if !bm25_only.is_empty() {
-        println!("  BM25 FOUND ({} queries) - VibeIndex MISSED:", bm25_only.len());
+        println!(
+            "  BM25 FOUND ({} queries) - VibeIndex MISSED:",
+            bm25_only.len()
+        );
         for (q, f) in &bm25_only {
             println!("    {} -> {}", q, f);
         }
         println!();
     }
 
-    let both_hit = vi_details.iter().zip(bm25_details.iter())
+    let both_hit = vi_details
+        .iter()
+        .zip(bm25_details.iter())
         .filter(|((_, vi_ok, _), (_, bm25_ok, _))| *vi_ok && *bm25_ok)
         .count();
     if both_hit > 0 {
@@ -1284,7 +1479,9 @@ fn main() {
         println!();
     }
 
-    let both_miss = vi_details.iter().zip(bm25_details.iter())
+    let both_miss = vi_details
+        .iter()
+        .zip(bm25_details.iter())
         .filter(|((_, vi_ok, _), (_, bm25_ok, _))| !*vi_ok && !*bm25_ok)
         .count();
     if both_miss > 0 {
@@ -1297,25 +1494,38 @@ fn main() {
     println!("  SUMMARY");
     println!("===========================================================");
     println!();
-    println!("  VibeIndex: {} hits / {} queries ({:.0}% recall)",
+    println!(
+        "  VibeIndex: {} hits / {} queries ({:.0}% recall)",
         vi_details.iter().filter(|(_, ok, _)| *ok).count(),
         vi_details.len(),
-        vi_recall * 100.0);
-    println!("  BM25:      {} hits / {} queries ({:.0}% recall)",
+        vi_recall * 100.0
+    );
+    println!(
+        "  BM25:      {} hits / {} queries ({:.0}% recall)",
         bm25_details.iter().filter(|(_, ok, _)| *ok).count(),
         bm25_details.len(),
-        bm25_recall * 100.0);
+        bm25_recall * 100.0
+    );
     println!();
-    println!("  VibeIndex found {} unique relevant results BM25 missed", vi_only.len());
-    println!("  BM25 found {} unique relevant results VibeIndex missed", bm25_only.len());
+    println!(
+        "  VibeIndex found {} unique relevant results BM25 missed",
+        vi_only.len()
+    );
+    println!(
+        "  BM25 found {} unique relevant results VibeIndex missed",
+        bm25_only.len()
+    );
     println!();
 
     if recall_ratio >= 1.0 && vi_time <= bm25_time * 5.0 {
         println!("  VibeIndex matches or exceeds BM25 recall with acceptable overhead");
         println!("  Positional phrase matching gives better semantic understanding");
     } else if recall_ratio >= 1.0 {
-        println!("  VibeIndex has better recall ({:.0}% vs {:.0}%)",
-            vi_recall * 100.0, bm25_recall * 100.0);
+        println!(
+            "  VibeIndex has better recall ({:.0}% vs {:.0}%)",
+            vi_recall * 100.0,
+            bm25_recall * 100.0
+        );
         println!("  VibeIndex has higher latency -- expected on large codebase");
         println!("  On large codebases, Roaring Bitmaps scale better than BM25");
     } else {

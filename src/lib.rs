@@ -196,13 +196,15 @@ impl VibeIndex {
         self.token_positions.len()
     }
     pub fn estimated_memory_bytes(&self) -> usize {
-        let token_seq_bytes = self.token_sequence.iter()
+        let token_seq_bytes = self
+            .token_sequence
+            .iter()
             .map(|s| s.capacity() + 24)
             .sum::<usize>();
-        let bitmap_bytes = self.token_positions.iter()
-            .map(|(k, bitmap)| {
-                k.capacity() + 24 + bitmap.serialized_size()
-            })
+        let bitmap_bytes = self
+            .token_positions
+            .iter()
+            .map(|(k, bitmap)| k.capacity() + 24 + bitmap.serialized_size())
             .sum::<usize>();
         token_seq_bytes + bitmap_bytes
     }
