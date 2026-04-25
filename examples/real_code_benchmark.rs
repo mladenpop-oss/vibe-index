@@ -1,5 +1,4 @@
-/// Benchmark: VibeIndex vs BM25 — Large Codebase Edition
-/// Uses actix-web framework source code as documents
+/// Benchmark: VibeIndex vs BM25 — Codebase Edition
 /// Compares retrieval quality (recall), speed, and memory footprint
 use vibe_index::VibeIndex;
 use vibe_index::query_parser::parse_query;
@@ -7,6 +6,11 @@ use vibe_index::bm25::Bm25Index;
 use std::time::Instant;
 use std::fs;
 use std::path::Path;
+
+type DocTokens = (String, Vec<String>);
+type QueryResult = (String, bool, String);
+type ViBenchmarkResult = (f64, f64, f64, usize, Vec<QueryResult>, usize, usize);
+type Bm25BenchmarkResult = (f64, f64, f64, usize, Vec<QueryResult>, usize);
 
 /// Tokenize source code content into tokens
 fn tokenize_source(content: &str) -> Vec<String> {
@@ -18,16 +22,15 @@ fn tokenize_source(content: &str) -> Vec<String> {
 }
 
 /// Scan all Rust source files in a directory tree and return as documents
-fn scan_rust_files(base_path: &str) -> Vec<(String, Vec<String>)> {
-    let mut docs = Vec::new();
+fn scan_rust_files(base_path: &str) -> Vec<DocTokens> {
     let base = Path::new(base_path);
 
     if !base.exists() {
         eprintln!("Warning: path '{}' does not exist", base_path);
-        return docs;
+        return Vec::new();
     }
 
-    fn walk_dir(dir: &Path, base: &Path, docs: &mut Vec<(String, Vec<String>)>) {
+    fn walk_dir(dir: &Path, base: &Path, docs: &mut Vec<DocTokens>) {
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -37,7 +40,7 @@ fn scan_rust_files(base_path: &str) -> Vec<(String, Vec<String>)> {
                         continue;
                     }
                     walk_dir(&path, base, docs);
-                } else if path.extension().map_or(false, |ext| ext == "rs") {
+                } else if path.extension().is_some_and(|ext| ext == "rs") {
                     if let Ok(content) = fs::read_to_string(&path) {
                         let tokens = tokenize_source(&content);
                         if !tokens.is_empty() {
@@ -53,13 +56,14 @@ fn scan_rust_files(base_path: &str) -> Vec<(String, Vec<String>)> {
         }
     }
 
+    let mut docs = Vec::new();
     walk_dir(base, base, &mut docs);
     docs.sort_by(|a, b| a.0.cmp(&b.0));
     docs
 }
 
 /// Get actix-web codebase from actual source files
-fn get_realistic_codebase() -> Vec<(String, Vec<String>)> {
+fn get_realistic_codebase() -> Vec<DocTokens> {
     let paths = [
         r"C:\Users\Daddy\Documents\pROJECT\actix-web-main\actix-web-main",
         r"..\actix-web-main\actix-web-main",
@@ -104,12 +108,11 @@ fn get_ground_truth() -> Vec<(String, Vec<String>)> {
     ]
 }
 
-fn build_documents() -> Vec<(String, Vec<String>)> {
-    let mut docs = Vec::new();
-
-    docs.push((
-        "query_parser.rs".into(),
-        tokenize_source(r#"
+fn build_documents() -> Vec<DocTokens> {
+    vec![
+        (
+            "query_parser.rs".into(),
+            tokenize_source(r#"
 use std::collections::HashSet;
 
 pub const ENGLISH_STOP_WORDS: &[&str] = &[
@@ -243,12 +246,11 @@ pub fn parse_query(query: &str) -> Vec<Vec<String>> {
     }
     phrases
 }
-        "#).into(),
-    ));
-
-    docs.push((
-        "bm25.rs".into(),
-        tokenize_source(r#"
+            "#),
+        ),
+        (
+            "bm25.rs".into(),
+            tokenize_source(r#"
 use std::collections::HashMap;
 
 pub struct BM25Index {
@@ -319,12 +321,11 @@ impl BM25Index {
         scores
     }
 }
-        "#).into(),
-    ));
-
-    docs.push((
-        "llama_cpp.rs".into(),
-        tokenize_source(r#"
+            "#),
+        ),
+        (
+            "llama_cpp.rs".into(),
+            tokenize_source(r#"
 use crate::VibeIndex;
 use crate::MatchResult;
 use std::time::Instant;
@@ -429,12 +430,11 @@ pub mod templates {
     pub const BUGFIND_PROMPT: &str = "You are a code debugging assistant.";
     pub const DOCS_PROMPT: &str = "You are a documentation assistant.";
 }
-        "#).into(),
-    ));
-
-    docs.push((
-        "middleware_pattern.rs".into(),
-        tokenize_source(r#"
+            "#),
+        ),
+        (
+            "middleware_pattern.rs".into(),
+            tokenize_source(r#"
 use std::sync::Arc;
 use std::collections::HashMap;
 
@@ -537,12 +537,11 @@ impl DatabasePool {
         conn.execute("INSERT INTO users (name, email) VALUES ($1, $2)", &[&user.name, &user.email]).await
     }
 }
-        "#).into(),
-    ));
-
-    docs.push((
-        "error_types.rs".into(),
-        tokenize_source(r#"
+            "#),
+        ),
+        (
+            "error_types.rs".into(),
+            tokenize_source(r#"
 use std::fmt;
 use std::error::Error as StdError;
 
@@ -635,12 +634,11 @@ pub fn validate_email(email: &str) -> Result<(), AuthError> {
     }
     Ok(())
 }
-        "#).into(),
-    ));
-
-    docs.push((
-        "handlers.rs".into(),
-        tokenize_source(r#"
+            "#),
+        ),
+        (
+            "handlers.rs".into(),
+            tokenize_source(r#"
 use actix_web::{web, HttpResponse, Responder};
 
 pub struct CreateUserRequest {
@@ -717,12 +715,11 @@ pub fn configure_routes(config: &mut web::ServiceConfig) {
 pub async fn health_check() -> impl Responder {
     HttpResponse::Ok().Json(json!({"status": "ok"}))
 }
-        "#).into(),
-    ));
-
-    docs.push((
-        "middleware_chain.rs".into(),
-        tokenize_source(r#"
+            "#),
+        ),
+        (
+            "middleware_chain.rs".into(),
+            tokenize_source(r#"
 use tower::ServiceBuilder;
 use tower::Layer;
 
@@ -772,12 +769,11 @@ pub fn build_api_router() -> Router {
         .route("/api/v1/health", web::get().to(health_check))
         .with_state(AppState::new())
 }
-        "#).into(),
-    ));
-
-    docs.push((
-        "cache.rs".into(),
-        tokenize_source(r#"
+            "#),
+        ),
+        (
+            "cache.rs".into(),
+            tokenize_source(r#"
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -862,15 +858,14 @@ impl<T: Clone> Cache<T> {
         store.len()
     }
 }
-        "#).into(),
-    ));
-
-    docs
+            "#),
+        ),
+    ]
 }
 
 fn run_vibe_index_benchmark(
-    codebase: &[(String, Vec<String>)],
-) -> (f64, f64, f64, usize, Vec<(String, bool, String)>, usize, usize) {
+    codebase: &[DocTokens],
+) -> ViBenchmarkResult {
     let mut index = VibeIndex::new();
     let mut position_to_doc: Vec<(usize, String)> = Vec::new();
 
@@ -889,7 +884,7 @@ fn run_vibe_index_benchmark(
     let vi_memory = index.estimated_memory_bytes();
 
     let ground_truth = get_ground_truth();
-    let mut results_detail: Vec<(String, bool, String)> = Vec::new();
+    let mut results_detail: Vec<QueryResult> = Vec::new();
     let mut total_tp = 0usize;
     let mut total_fn = 0usize;
     let mut total_time = 0.0;
@@ -906,7 +901,7 @@ fn run_vibe_index_benchmark(
         let mut found = false;
         let mut matched_doc = String::new();
         for r in &results {
-            if let Some(&(_, ref doc_name)) = position_to_doc.get(r.position) {
+            if let Some((_, doc_name)) = position_to_doc.get(r.position) {
                 for pattern in expected_patterns {
                     if doc_name.to_lowercase().contains(&pattern.to_lowercase()) {
                         found = true;
@@ -938,8 +933,8 @@ fn run_vibe_index_benchmark(
 }
 
 fn run_bm25_benchmark(
-    codebase: &[(String, Vec<String>)],
-) -> (f64, f64, f64, usize, Vec<(String, bool, String)>, usize) {
+    codebase: &[DocTokens],
+) -> Bm25BenchmarkResult {
     let mut index = Bm25Index::new();
     let mut all_tokens = Vec::new();
 
@@ -964,7 +959,7 @@ fn run_bm25_benchmark(
     bm25_memory += total_term_refs * (32 + 8);
 
     let ground_truth = get_ground_truth();
-    let mut results_detail: Vec<(String, bool, String)> = Vec::new();
+    let mut results_detail: Vec<QueryResult> = Vec::new();
     let mut total_tp = 0usize;
     let mut total_fn = 0usize;
     let mut total_time = 0.0;
@@ -1029,15 +1024,14 @@ fn min(a: usize, b: usize) -> usize {
 }
 
 fn main() {
-    println!("╔═══════════════════════════════════════════════════════════╗");
-    println!("║   VibeIndex vs BM25 Benchmark — Codebase Edition         ║");
-    println!("║   Real Rust source code (embedded test documents)       ║");
-    println!("╚═══════════════════════════════════════════════════════════╝");
+    println!("===========================================================");
+    println!("  VibeIndex vs BM25 Benchmark — Codebase Edition");
+    println!("  Real Rust source code (embedded test documents)");
+    println!("===========================================================");
     println!();
 
     let codebase = build_documents();
 
-    // Try to use actix-web if available
     let actual_codebase = get_realistic_codebase();
     let codebase = if actual_codebase.len() > codebase.len() {
         println!("Using actix-web codebase: {} files", actual_codebase.len());
@@ -1056,7 +1050,6 @@ fn main() {
     println!("Total source size: {:>10} bytes", total_bytes);
     println!("Unique files: {} files\n", unique_files.len());
 
-    // Show file distribution by crate
     let mut crate_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
     for (name, _) in &codebase {
         let crate_name = name.split('/').next().unwrap_or("unknown");
@@ -1070,7 +1063,6 @@ fn main() {
     }
     println!();
 
-    // Warmup
     println!("[Warmup] Building indexes...");
     let warmup_start = Instant::now();
     let mut warmup_index = VibeIndex::new();
@@ -1098,10 +1090,9 @@ fn main() {
     let warmup_bm25_time = warmup_start.elapsed();
     println!("  BM25 built in {}ms\n", warmup_bm25_time.as_millis());
 
-    // VibeIndex benchmark
-    println!("───────────────────────────────────────────────────────────");
+    println!("-----------------------------------------------------------");
     println!("  [1/2] VibeIndex Benchmark");
-    println!("───────────────────────────────────────────────────────────");
+    println!("-----------------------------------------------------------");
     let (vi_recall, vi_precision, vi_time, vi_queries, vi_details, vi_memory, total_vi_results) =
         run_vibe_index_benchmark(&codebase);
     println!("  Recall:     {:.1}%", vi_recall * 100.0);
@@ -1110,7 +1101,7 @@ fn main() {
     println!("  Total time: {:.2}ms for {} queries", vi_time * vi_queries as f64 * 1000.0, vi_queries);
     println!(" Hits:       {}/{}", vi_details.iter().filter(|(_, ok, _)| *ok).count(), vi_details.len());
     println!("  Memory:     {} bytes ({:.2} KB)", vi_memory, vi_memory as f64 / 1024.0);
-    let avg_results = if vi_queries > 0 { total_vi_results / vi_queries } else { 0 };
+    let avg_results = vi_queries.checked_div(vi_queries).map_or(0, |q| if q > 0 { total_vi_results / vi_queries } else { 0 });
     let avg_context_tokens = avg_results * 30;
     let avg_code_tokens = avg_results * 200;
     println!("  Avg results/query: {}", avg_results);
@@ -1118,10 +1109,9 @@ fn main() {
     println!("  Est LLM context (with code snippets): ~{} tokens (~{} MB KV cache)", avg_context_tokens + avg_code_tokens, (avg_context_tokens + avg_code_tokens) * 25 / 1024 / 1024);
     println!();
 
-    // BM25 benchmark
-    println!("───────────────────────────────────────────────────────────");
+    println!("-----------------------------------------------------------");
     println!("  [2/2] BM25 Benchmark");
-    println!("───────────────────────────────────────────────────────────");
+    println!("-----------------------------------------------------------");
     let (bm25_recall, bm25_precision, bm25_time, bm25_queries, bm25_details, bm25_memory) =
         run_bm25_benchmark(&codebase);
     println!("  Recall:     {:.1}%", bm25_recall * 100.0);
@@ -1132,10 +1122,9 @@ fn main() {
     println!("  Memory:     {} bytes ({:.2} KB)", bm25_memory, bm25_memory as f64 / 1024.0);
     println!();
 
-    // Memory comparison
-    println!("───────────────────────────────────────────────────────────");
+    println!("-----------------------------------------------------------");
     println!("  MEMORY FOOTPRINT");
-    println!("───────────────────────────────────────────────────────────");
+    println!("-----------------------------------------------------------");
     println!();
     println!("  VibeIndex:  {:>12} bytes  ({:>8.2} KB)", vi_memory, vi_memory as f64 / 1024.0);
     println!("  BM25:       {:>12} bytes  ({:>8.2} KB)", bm25_memory, bm25_memory as f64 / 1024.0);
@@ -1168,7 +1157,6 @@ fn main() {
     println!("  For LLM context: VibeIndex enables ~4MB vs 22MB RAG (5x smaller)");
     println!();
 
-    // Comparison
     println!("===========================================================");
     println!("  COMPARISON");
     println!("===========================================================");
@@ -1217,14 +1205,13 @@ fn main() {
     }
     println!();
 
-    // Detailed per-query results
-    println!("───────────────────────────────────────────────────────────");
+    println!("-----------------------------------------------------------");
     println!("  PER-QUERY BREAKDOWN");
-    println!("───────────────────────────────────────────────────────────");
+    println!("-----------------------------------------------------------");
     println!();
     println!("  {:<32} {:>6} {:>8}  {:>6} {:>8}",
         "Query", "VI", "File", "BM25", "File");
-    println!("  {}", "────────────────────────────────────────────────────────────");
+    println!("  --------------------------------------------------------------------------------------------");
 
     for i in 0..vi_details.len() {
         let query = &vi_details[i].0;
@@ -1233,8 +1220,6 @@ fn main() {
         let bm25_ok = bm25_details[i].1;
         let bm25_file = &bm25_details[i].2;
 
-        let _vi_status = if vi_ok { "HIT" } else { "MISS" };
-        let _bm25_status = if bm25_ok { "HIT" } else { "MISS" };
         let vi_file_short = if vi_file.len() > 16 {
             format!("...{}", &vi_file[vi_file.len()-13..])
         } else {
@@ -1257,7 +1242,6 @@ fn main() {
     }
     println!();
 
-    // Summary of differences
     let vi_only: Vec<(&String, &String)> = vi_details.iter()
         .zip(bm25_details.iter())
         .filter(|((_, vi_ok, _), (_, bm25_ok, _))| *vi_ok && !bm25_ok)
@@ -1270,9 +1254,9 @@ fn main() {
         .map(|((q, _, f), _)| (q, f))
         .collect();
 
-    println!("───────────────────────────────────────────────────────────");
+    println!("-----------------------------------------------------------");
     println!("  WHO WON EACH QUERY");
-    println!("───────────────────────────────────────────────────────────");
+    println!("-----------------------------------------------------------");
     println!();
 
     if !vi_only.is_empty() {
@@ -1309,7 +1293,6 @@ fn main() {
         println!();
     }
 
-    // Final summary
     println!("===========================================================");
     println!("  SUMMARY");
     println!("===========================================================");
