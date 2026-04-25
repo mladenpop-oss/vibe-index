@@ -59,24 +59,32 @@ impl VibeIndex {
             .min_by_key(|(_, b)| b.len())
             .map(|(i, _)| *i)
             .unwrap_or(0);
+        let anchor_bitmap = masks.iter().find(|(i, _)| *i == anchor_idx).unwrap().1;
 
-        // Convert bitmaps to sorted u32 slices for SIMD processing
-        let token_bitmaps: Vec<(usize, Vec<u32>)> = masks
+        // For each position in the smallest bitmap, check if all other positions align
+        let mut result = RoaringBitmap::new();
+        for pos in anchor_bitmap.iter() {
+            let mut matches = true;
+            for (query_offset, (_, bitmap)) in masks.iter().enumerate() {
+                // Calculate expected position: anchor_pos + (query_offset - anchor_query_index)
+                let expected_pos = pos as i64 + (query_offset as i64 - anchor_idx as i64);
+                if expected_pos < 0 || !bitmap.contains(expected_pos as u32) {
+                    matches = false;
+                    break;
+                }
+            }
+            if matches {
+                // Use the first query token's position as the match position
+                let _first_bitmap = masks.first().unwrap().1;
+                let first_pos = pos as i64 - (anchor_idx as i64);
+                if first_pos >= 0 {
+                    result.push(first_pos as u32);
+                }
+            }
+        }
+
+        result
             .iter()
-            .map(|(idx, bitmap)| (*idx, bitmap.iter().collect()))
-            .collect();
-        let anchor_positions = &token_bitmaps[anchor_idx].1;
-        let token_slices: Vec<(usize, &[u32])> = token_bitmaps
-            .iter()
-            .map(|(idx, positions)| (*idx, positions.as_slice()))
-            .collect();
-
-        // Use SIMD-accelerated phrase search
-        let match_positions =
-            simd_search::SimdPhraseSearch::search(anchor_positions, anchor_idx, &token_slices);
-
-        match_positions
-            .into_iter()
             .map(|pos| {
                 let pos = pos as usize;
                 let query_len = query.len();
@@ -251,7 +259,6 @@ pub mod hybrid_search;
 pub mod llama_cpp;
 pub mod persistent_storage;
 pub mod query_parser;
-pub mod simd_search;
 pub mod vllm;
 
 #[cfg(test)]
