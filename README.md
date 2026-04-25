@@ -221,7 +221,7 @@ powershell -ExecutionPolicy Bypass -File .\run_benchmark.ps1  # Windows
 - [x] Hybrid search (BM25 + Vibe Index)
 - [x] vLLM integration (hybrid search, context budget, output validation, confidence feedback)
 - [x] Hot/Cold layer split (in-memory hot buffer + disk-based cold storage)
-- [ ] Persistent storage
+- [x] Persistent storage (gzip-compressed index files with magic version validation)
 
 ## Contributing
 

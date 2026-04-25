@@ -10,8 +10,8 @@ pub struct MatchResult {
 }
 
 pub struct VibeIndex {
-    token_positions: HashMap<String, RoaringBitmap>,
-    token_sequence: Vec<String>,
+    pub token_positions: HashMap<String, RoaringBitmap>,
+    pub token_sequence: Vec<String>,
     position: usize,
 }
 
@@ -203,6 +203,7 @@ pub mod query_parser;
 pub mod llama_cpp;
 pub mod vllm;
 pub mod hot_cold;
+pub mod persistent_storage;
 
 #[cfg(test)]
 mod tests {
