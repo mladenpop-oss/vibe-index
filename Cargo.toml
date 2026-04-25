@@ -21,3 +21,7 @@ criterion = "0.5"
 [[bench]]
 name = "benchmark"
 harness = false
+
+[[example]]
+name = "real_code_benchmark"
+path = "examples/real_code_benchmark.rs"
