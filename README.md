@@ -225,12 +225,13 @@ powershell -ExecutionPolicy Bypass -File .\run_benchmark.ps1  # Windows
 - [x] Hot/Cold layer split (in-memory hot buffer + disk-based cold storage)
 - [x] Persistent storage (gzip-compressed token sequences with magic version validation)
 - [x] Cold layer phrase search (full cross-layer phrase matching)
+- [x] SIMD-accelerated phrase search (auto-vectorized batch processing, 8-way parallelism)
 - [ ] Persistent bitmap storage (bitmaps rebuilt from token sequence on load)
 
 ## Current Limitations
 
 - **Bitmaps not persisted separately** — Persistent storage saves gzip-compressed token sequences. Position bitmaps are rebuilt by re-indexing tokens on load.
-- **No SIMD acceleration** — Phrase search uses pure Rust iteration over Roaring Bitmaps. SIMD (AVX2/AVX-512) is planned for future optimization.
+- **SIMD auto-vectorization** — Phrase search uses batched array processing that the compiler auto-vectorizes with AVX2/AVX-512 in release builds. Explicit SIMD intrinsics (AVX-512 VPOPCNTD, etc.) are planned for further optimization.
 - **No custom delta encoding** — Position compression relies on Roaring Bitmap's internal algorithms. Delta encoding + VByte encoding is planned for the cold layer.
 - **BM25 IDF calculated on-the-fly** — Not precomputed. Minor performance impact for large document sets.
 - **Hot layer size fixed at runtime** — `max_hot_tokens` must be set when creating `HotColdIndex`.
