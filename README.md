@@ -133,6 +133,47 @@ let (response, matches) = integration.ask(
 
 Tested with Qwen3VL-4B. Search completes in ~60µs, LLM generates the answer.
 
+## vLLM Integration
+
+Production-ready integration with hybrid search, context budget management, and output validation.
+
+```rust
+use vibe_index::vllm::{VllmIntegration, prompts};
+
+let mut integration = VllmIntegration::new(
+    "http://127.0.0.1:8000".into(), // vLLM server URL
+    4096,                            // max context tokens
+);
+
+// Index your codebase
+for token in &your_tokens {
+    integration.add_token(token);
+}
+for (start, end) in &document_ranges {
+    integration.add_document(*start, *end);
+}
+integration.index_tokens(&all_tokens);
+
+// Full pipeline: hybrid search → build messages → vLLM → validate output
+let (response, matches, ctx_validation, output_validation) = integration.ask(
+    &context_tokens,
+    "Refactor the auth middleware to use JWT",
+    &[vec!["auth".into(), "middleware".into()]],
+).await?;
+
+// Check for issues
+if !output_validation.syntax_valid {
+    println!("Output issues: {:?}", output_validation.issues);
+}
+```
+
+**Features:**
+- **Hybrid search** — BM25 candidate retrieval + Vibe Index exact position validation
+- **Context window budget** — automatic truncation when context exceeds token limit
+- **Post-injection validation** — checks for truncated tokens, unbalanced braces/parens
+- **Output sanity checks** — validates syntax of generated code (braces, parens, terminators)
+- **Confidence feedback loop** — tracks success rate per query, adjusts future weights
+
 ## Live Demo
 
 See it in action: [Interactive Demo](https://mladenpop-oss.github.io/vibe-index/demo.html)
@@ -167,7 +208,7 @@ cargo bench
 - [x] Query parser (natural language → search phrases)
 - [x] Llama.cpp integration (tested with Qwen3VL-4B)
 - [x] Hybrid search (BM25 + Vibe Index)
-- [ ] vLLM integration
+- [x] vLLM integration (hybrid search, context budget, output validation, confidence feedback)
 - [ ] Hot/Cold layer split
 - [ ] Persistent storage
 
