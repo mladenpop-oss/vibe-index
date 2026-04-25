@@ -1,0 +1,40 @@
+﻿cargo :     Finished `release` profile [optimized] target(s) in 0.03s
+At line:1 char:54
++ ... $env:PATH"; cargo run --release --manifest-path C:\Users\Daddy\Docume ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (    Finished `r...get(s) in 0.03s:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+     Running `target\release\vibe-index.exe`
+=== Vibe Index Demo ===
+
+[1] Indexing 42 tokens...
+    Indexed 28 unique tokens
+
+[2] Phrase search:
+    'fn fetch_data' -> 0 matches
+    'cursor execute' -> 1 matches
+      [POS 20] [POS 20] 'cursor execute' (context: ... cursor conn cursor cursor execute)
+    'let conn' -> 1 matches
+      [POS 10] [POS 10] 'let conn' (context: ... Vec Row Error let conn)
+
+[3] Fuzzy search (typo tolerance):
+    'execut' (max_dist=2) -> 1 matches
+      [POS 21] fuzzy: 'execute' (dist=1) -> 'execut' (conf=0.67)
+    'fetc' (max_dist=2) -> 6 matches
+      [POS 1] fuzzy: 'fetch' (dist=1) -> 'fetc' (conf=0.67)
+      [POS 32] fuzzy: 'fetch' (dist=1) -> 'fetc' (conf=0.67)
+      [POS 7] fuzzy: 'Vec' (dist=2) -> 'fetc' (conf=0.33)
+      [POS 10] fuzzy: 'let' (dist=2) -> 'fetc' (conf=0.33)
+      [POS 16] fuzzy: 'let' (dist=2) -> 'fetc' (conf=0.33)
+      [POS 30] fuzzy: 'let' (dist=2) -> 'fetc' (conf=0.33)
+    'recors' (max_dist=2) -> 1 matches
+      [POS 39] fuzzy: 'records' (dist=1) -> 'recors' (conf=0.67)
+
+[4] Benchmark (100,000 iterations):
+    'fn' -> avg 1464ns (146.50ms total)
+    'cursor' -> avg 2070ns (207.10ms total)
+    'fn fetch_data' -> avg 51ns (5.17ms total)
+    'cursor execute' -> avg 1541ns (154.11ms total)
+
+=== Done ===

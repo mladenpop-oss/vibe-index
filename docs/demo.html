@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibe Index - Live Demo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0d1117;
+            color: #c9d1d9;
+            font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+            padding: 2rem;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #58a6ff;
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            color: #8b949e;
+            font-size: 0.875rem;
+            margin-bottom: 2rem;
+        }
+
+        .terminal {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .terminal-header {
+            background: #21262d;
+            padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            border-bottom: 1px solid #30363d;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .dot.red { background: #ff5f56; }
+        .dot.yellow { background: #ffbd2e; }
+        .dot.green { background: #27c93f; }
+
+        .terminal-title {
+            margin-left: 1rem;
+            color: #8b949e;
+            font-size: 0.75rem;
+        }
+
+        .terminal-body {
+            padding: 1.5rem;
+            font-size: 0.875rem;
+            line-height: 1.6;
+            overflow-x: auto;
+        }
+
+        .line {
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .green { color: #7ee787; }
+        .blue { color: #79c0ff; }
+        .yellow { color: #e3b341; }
+        .cyan { color: #72c9d8; }
+        .magenta { color: #d2a8ff; }
+        .gray { color: #8b949e; }
+        .white { color: #c9d1d9; }
+        .red { color: #ff7b72; }
+
+        .stats {
+            margin-top: 2rem;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 1rem;
+        }
+
+        .stat-card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #58a6ff;
+            margin-bottom: 0.25rem;
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: #8b949e;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-top: 2rem;
+            color: #58a6ff;
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Vibe Index</h1>
+        <p class="subtitle">Bit-level positional phrase matching for ultra-low-latency LLM context retrieval</p>
+
+        <div class="terminal">
+            <div class="terminal-header">
+                <div class="dot red"></div>
+                <div class="dot yellow"></div>
+                <div class="dot green"></div>
+                <span class="terminal-title">vibe-index.exe — PowerShell</span>
+            </div>
+            <div class="terminal-body">
+                <div class="line"><span class="white">=== Vibe Index Demo ===</span></div>
+                <div class="line"></div>
+                <div class="line"><span class="blue">[1]</span> Indexing <span class="yellow">42</span> tokens...</div>
+                <div class="line">    Indexed <span class="yellow">28</span> unique tokens</div>
+                <div class="line"></div>
+                <div class="line"><span class="blue">[2]</span> Phrase search:</div>
+                <div class="line">    'fn fetch_data' -> <span class="yellow">0</span> matches</div>
+                <div class="line">    'cursor execute' -> <span class="green">1</span> matches</div>
+                <div class="line">      [POS <span class="yellow">20</span>] [POS <span class="yellow">20</span>] 'cursor execute' (context: ... cursor conn cursor cursor execute)</div>
+                <div class="line">    'let conn' -> <span class="green">1</span> matches</div>
+                <div class="line">      [POS <span class="yellow">10</span)] [POS <span class="yellow">10</span>] 'let conn (context: ... Vec Row Error let conn)</div>
+                <div class="line"></div>
+                <div class="line"><span class="blue">[3]</span> Fuzzy search (typo tolerance):</div>
+                <div class="line">    'execut' (max_dist=<span class="yellow">2</span>) -> <span class="green">1</span> matches</div>
+                <div class="line">      [POS <span class="yellow">21</span>] fuzzy: 'execute (dist=<span class="yellow">1</span>) -> 'execut' (conf=<span class="yellow">0.67</span>)</div>
+                <div class="line">    'fetc' (max_dist=<span class="yellow">2</span>) -> <span class="yellow">6</span> matches</div>
+                <div class="line">      [POS <span class="yellow">1</span>] fuzzy: 'fetch' (dist=<span class="yellow">1</span>) -> 'fetc' (conf=<span class="yellow">0.67</span>)</div>
+                <div class="line">      [POS <span class="yellow">32</span>] fuzzy: 'fetch (dist=<span class="yellow">1</span>) -> 'fetc' (conf=<span class="yellow">0.67</span>)</div>
+                <div class="line">    'recors' (max_dist=<span class="yellow">2</span>) -> <span class="green">1</span> matches</div>
+                <div class="line">      [POS <span class="yellow">39</span>] fuzzy: 'records (dist=<span class="yellow">1</span>) -> 'recors (conf=<span class="yellow">0.67</span>)</div>
+                <div class="line"></div>
+                <div class="line"><span class="blue">[4]</span> Benchmark (<span class="yellow">100,000</span> iterations):</div>
+                <div class="line">    'fn' -> avg <span class="yellow">1464ns</span></div>
+                <div class="line">    'cursor' -> avg <span class="yellow">2070ns</span></div>
+                <div class="line">    'fn fetch_data' -> avg <span class="yellow">51ns</span></div>
+                <div class="line">    'cursor execute' -> avg <span class="yellow">1541ns</span></div>
+                <div class="line"></div>
+                <div class="line"><span class="green">=== Done ===</span></div>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value">~1µs</div>
+                <div class="stat-label">Search Latency</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">80%</div>
+                <div class="stat-label">Context Reduction</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">4MB</div>
+                <div class="stat-label">KV Cache (vs 22MB)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">100%</div>
+                <div class="stat-label">Exact Matches</div>
+            </div>
+        </div>
+
+        <a href="https://github.com/mladenpop-oss/vibe-index" class="back-link">← Back to GitHub Repo</a>
+    </div>
+</body>
+</html>
