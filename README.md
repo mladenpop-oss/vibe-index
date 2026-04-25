@@ -2,6 +2,11 @@
 
 **Sub-millisecond exact phrase retrieval for AI-assisted development.**
 
+[![CI](https://github.com/mladenpop-oss/vibe-index/actions/workflows/ci.yml/badge.svg)](https://github.com/mladenpop-oss/vibe-index/actions)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)](https://www.rust-lang.org)
+[![Stars](https://img.shields.io/github/stars/mladenpop-oss/vibe-index?style=social)](https://github.com/mladenpop-oss/vibe-index)
+
 > Instead of embeddings and vector search, each token maps to a compressed bitmap of its positions. Phrase matching becomes a bitwise operation over these bitmaps.
 
 ## Why?
@@ -181,16 +186,20 @@ See it in action: [Interactive Demo](https://mladenpop-oss.github.io/vibe-index/
 ## Quick start
 
 ```bash
+# Clone and build
+git clone https://github.com/mladenpop-oss/vibe-index.git
+cd vibe-index
 cargo run --release
+
+# Run benchmarks
+cargo bench
+
+# Or use the benchmark runner script
+./run_benchmark.sh  # Linux/Mac
+powershell -ExecutionPolicy Bypass -File .\run_benchmark.ps1  # Windows
 ```
 
 ## Benchmarks
-
-Run benchmarks:
-
-```bash
-cargo bench
-```
 
 | Benchmark | Time |
 |-----------|------|
@@ -201,16 +210,17 @@ cargo bench
 | Unified natural language search | ~2.6 ms |
 | Hybrid search (BM25 + Vibe) | ~105-147 µs |
 
-## Status
+*All benchmarks run on release build, single core.*
 
-- [x] Core engine (phrase + fuzzy search)
-- [x] Benchmarks
-- [x] Query parser (natural language → search phrases)
-- [x] Llama.cpp integration (tested with Qwen3VL-4B)
-- [x] Hybrid search (BM25 + Vibe Index)
-- [x] vLLM integration (hybrid search, context budget, output validation, confidence feedback)
-- [ ] Hot/Cold layer split
-- [ ] Persistent storage
+## Contributing
+
+We welcome contributions! Please:
+1. Fork the repo
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Run tests and benchmarks (`cargo test && cargo bench`)
+4. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+5. Push to the branch (`git push origin feature/amazing-feature`)
+6. Open a Pull Request
 
 ## License
 
