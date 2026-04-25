@@ -38,7 +38,7 @@ impl VibeIndex {
             return Vec::new();
         }
 
-        // Collect bitmaps and find the smallest one (most efficient anchor)
+        // Collect bitmaps with their query indices
         let mut masks: Vec<(usize, &RoaringBitmap)> = Vec::new();
         for (i, token) in query.iter().enumerate() {
             match self.token_positions.get(token) {
@@ -48,22 +48,28 @@ impl VibeIndex {
         }
 
         // Find smallest bitmap to use as anchor (fewest iterations)
-        let smallest_idx = masks.iter().min_by_key(|(_, b)| b.len()).map(|(i, _)| *i).unwrap_or(0);
-        let anchor_bitmap = masks.iter().find(|(i, _)| *i == smallest_idx).unwrap().1;
+        let anchor_idx = masks.iter().min_by_key(|(_, b)| b.len()).map(|(i, _)| *i).unwrap_or(0);
+        let anchor_bitmap = masks.iter().find(|(i, _)| *i == anchor_idx).unwrap().1;
 
         // For each position in the smallest bitmap, check if all other positions align
         let mut result = RoaringBitmap::new();
         for pos in anchor_bitmap.iter() {
             let mut matches = true;
-            for (offset, (_, bitmap)) in masks.iter().enumerate() {
-                let target = pos + offset as u32;
-                if !bitmap.contains(target) {
+            for (query_offset, (_, bitmap)) in masks.iter().enumerate() {
+                // Calculate expected position: anchor_pos + (query_offset - anchor_query_index)
+                let expected_pos = pos as i64 + (query_offset as i64 - anchor_idx as i64);
+                if expected_pos < 0 || !bitmap.contains(expected_pos as u32) {
                     matches = false;
                     break;
                 }
             }
             if matches {
-                result.push(pos);
+                // Use the first query token's position as the match position
+                let first_bitmap = masks.first().unwrap().1;
+                let first_pos = pos as i64 - (anchor_idx as i64);
+                if first_pos >= 0 {
+                    result.push(first_pos as u32);
+                }
             }
         }
 
