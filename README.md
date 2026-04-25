@@ -1,249 +1,139 @@
 ﻿# Vibe Index
 
-**Roaring Bitmap-based positional phrase matching for sub-millisecond LLM context retrieval.**
+**Roaring Bitmap positional phrase matching for low-latency LLM context retrieval.**
 
 [![CI](https://github.com/mladenpop-oss/vibe-index/actions/workflows/ci.yml/badge.svg)](https://github.com/mladenpop-oss/vibe-index/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)](https://www.rust-lang.org)
-[![Stars](https://img.shields.io/github/stars/mladenpop-oss/vibe-index?style=social)](https://github.com/mladenpop-oss/vibe-index)
 
-> Instead of embeddings and vector search, each token maps to a compressed bitmap of its positions. Phrase matching becomes a bitwise operation over these bitmaps.
+> Each token maps to a compressed Roaring Bitmap of its positions. Phrase matching becomes an anchor-and-offset scan over bitmaps — no embeddings, no vectors.
 
-## Why?
+## Why
 
-Traditional RAG adds 8-12K tokens to each LLM prompt, most of which are irrelevant. With a 20B model eating all your VRAM, each unnecessary context injection pushes you over the edge.
+RAG pipelines stuff 8K-16K tokens into every LLM prompt, most irrelevant. Vibe Index finds **exact** phrases at **exact** positions in microseconds, then injects only the relevant context window.
 
-Vibe Index replaces "similar" code retrieval with **exact** code at **exact** positions — in microseconds.
+## Benchmarks (verified)
 
-## Results
+Measured on 50K token synthetic codebase, release build, single core, Windows 11:
 
-| Metric | RAG (baseline) | Vibe Index |
-|--------|----------------|------------|
-| Context tokens per query | 8K-16K | 3K-6K |
-| Search latency | 50-300 ms | 69ns - 960µs |
-| Exact phrase match | No | Yes |
-| Fuzzy search (Levenshtein) | No | Yes (distance ≤ 2) |
-| VRAM pressure | High (linear KV cache growth) | Low (dense, optimized) |
+| Benchmark | Median time |
+|-----------|-------------|
+| Index 50K tokens | **5.75 ms** |
+| Index 10K tokens | **1.13 ms** |
+| Phrase match — 1 occurrence (`fn process_0`) | **117 ns** |
+| Phrase match — ~100 occurrences (`let mut result`) | **170 µs** |
+| Phrase not found (early exit) | **70 ns** |
+| Unified NL search (`where is the process_item function`) | **977 µs** |
+| Unified search + typo tolerance (`proces_item fuction`) | **851 µs** |
+| Hybrid search — BM25 + Vibe (`connect database`) | **36 µs** |
+| Hybrid search — multi-match (`process item function`) | **47 µs** |
+| Vibe-only fallback (no BM25 hit) | **38 µs** |
 
-Benchmarked on 50K token corpus, single core, release build.
+**Tests: 40/40 passing** (38 unit + 2 llama.cpp integration)
 
-## How it works
-
-1. Each unique token maps to a **Roaring Bitmap** of its positions
-2. Phrase matching uses the smallest bitmap as anchor, then checks `contains()` at offset positions for all other tokens
-3. Results include surrounding context automatically
-4. Roaring Bitmap's internal compression means storage scales sub-linearly with codebase size
-
-## Hybrid Search
-
-Use BM25 for candidate retrieval → Vibe Index for exact position validation:
-
-```rust
-use vibe_index::hybrid_search::HybridSearcher;
-
-let mut hybrid = HybridSearcher::new(5); // top-5 candidates
-for doc in &documents {
-    hybrid.add_document(start, end);
-}
-hybrid.index_tokens(&all_tokens);
-
-// BM25 finds relevant docs → Vibe validates exact phrases
-let results = hybrid.search("connect database");
-```
-
-## How it compares
-
-Vibe Index is best viewed as a **precision-oriented lexical retrieval primitive**, not a replacement for all retrieval methods.
-
-| Approach | What it matches | Best for |
-|----------|----------------|----------|
-| **Vibe Index** | Exact token positions + simple typo matches | Exact phrase/code lookup, sub-millisecond |
-| **BM25** | Lexical term overlap | Keyword search, ranked document retrieval |
-| **Embeddings** | Semantic similarity between chunks | Conceptual search with different words |
-| **ColBERT** | Token-level neural similarity | Semantic + lexical matching |
-
-**Vibe Index vs BM25**
-
-BM25 answers: "Which chunks are probably relevant to 'database cursor execute'?"
-Vibe Index answers: "Where exactly does ['cursor', 'execute'] occur?"
-
-**Vibe Index vs Embeddings**
-
-Embeddings find related code even if the words differ. Vibe Index finds exact code at exact positions. For code search, Vibe Index is sharper when you know the phrase or symbol.
-
-**Vibe Index vs ColBERT**
-
-ColBERT: neural token embeddings + max-sim scoring
-Vibe Index: exact token bitmap operations
-
-ColBERT matches related meanings and paraphrases. Vibe Index is simpler, cheaper, and faster.
-
-**The hybrid approach**
+## Architecture
 
 ```
-BM25 or embeddings: find likely files/chunks
-Vibe Index: pinpoint exact symbols/phrases/positions inside them
+Token stream → Roaring Bitmap per unique token → Phrase search via anchor bitmap + offset validation
 ```
 
-## Query Parser
-
-Natural language queries are automatically converted to search phrases:
-
-```rust
-use vibe_index::query_parser::parse_query;
-
-let phrases = parse_query("how does the auth middleware chain work?");
-// → [["auth", "middleware", "chain"], ["auth"], ["middleware"], ["chain"]]
-```
-
-Handles: camelCase, PascalCase, snake_case, kebab-case, `::` paths (`std::collections::HashMap`), generics (`Vec<String>`), acronyms (HTTPS, URL).
-
-## Unified Search
-
-For most use cases, use `VibeIndex::search()` — it combines everything:
-
-```rust
-// One line: natural language → ranked results
-let results = index.search("where is the auth middleware chain");
-// → [MatchResult { position: 42, confidence: 0.95 }, ...]
-```
-
-Behind the scenes it:
-1. Parses the query into search phrases
-2. Runs exact phrase matching
-3. Falls back to fuzzy matching for typos
-4. Merges and sorts by confidence
-
-## Llama.cpp Integration
-
-Full pipeline: index code → extract phrases → build prompt → get LLM completion.
-
-```rust
-use vibe_index::llama_cpp::LlamaCppIntegration;
-
-let mut integration = LlamaCppIntegration::new("http://127.0.0.1:8080".into());
-
-// Index your codebase
-for token in &your_tokens {
-    integration.add_token(token);
-}
-
-// Full pipeline: index + search + LLM completion
-let (response, matches) = integration.ask(
-    &context_tokens,
-    "What does the add function do?",
-    &search_queries,
-).await?;
-```
-
-Tested with Qwen3VL-4B. Search completes in ~60µs, LLM generates the answer.
-
-## vLLM Integration
-
-Production-ready integration with hybrid search, context budget management, and output validation.
-
-```rust
-use vibe_index::vllm::{VllmIntegration, prompts};
-
-let mut integration = VllmIntegration::new(
-    "http://127.0.0.1:8000".into(), // vLLM server URL
-    4096,                            // max context tokens
-);
-
-// Index your codebase
-for token in &your_tokens {
-    integration.add_token(token);
-}
-for (start, end) in &document_ranges {
-    integration.add_document(*start, *end);
-}
-integration.index_tokens(&all_tokens);
-
-// Full pipeline: hybrid search → build messages → vLLM → validate output
-let (response, matches, ctx_validation, output_validation) = integration.ask(
-    &context_tokens,
-    "Refactor the auth middleware to use JWT",
-    &[vec!["auth".into(), "middleware".into()]],
-).await?;
-
-// Check for issues
-if !output_validation.syntax_valid {
-    println!("Output issues: {:?}", output_validation.issues);
-}
-```
-
-**Features:**
-- **Hybrid search** — BM25 candidate retrieval + Vibe Index exact position validation
-- **Context window budget** — automatic truncation when context exceeds token limit
-- **Post-injection validation** — checks for truncated tokens, unbalanced braces/parens
-- **Output sanity checks** — validates syntax of generated code (braces, parens, terminators)
-- **Confidence feedback loop** — tracks success rate per query, adjusts future weights
-
-## Live Demo
-
-See it in action: [Interactive Demo](https://mladenpop-oss.github.io/vibe-index/demo.html)
+1. `add_token("foo")` → bitmap for "foo" gets current position pushed
+2. `phrase_search(["foo", "bar"])` → pick smallest bitmap as anchor, iterate its positions, check if sibling tokens exist at `pos + offset`
+3. Roaring Bitmap internal run-length compression keeps memory sub-linear
 
 ## Quick start
 
 ```bash
-# Clone and build
 git clone https://github.com/mladenpop-oss/vibe-index.git
 cd vibe-index
 cargo run --release
-
-# Run benchmarks
-cargo bench
-
-# Or use the benchmark runner script
-./run_benchmark.sh  # Linux/Mac
-powershell -ExecutionPolicy Bypass -File .\run_benchmark.ps1  # Windows
 ```
 
-## Benchmarks
+```rust
+use vibe_index::VibeIndex;
 
-| Benchmark | Time |
-|-----------|------|
-| Index 50K tokens | ~5.8 ms |
-| Index 10K tokens | ~1.1 ms |
-| Phrase match (2 tokens, 1 occurrence) | ~117 ns |
-| Phrase match (3 tokens, ~100 occurrences) | ~170 µs |
-| Phrase not found | ~69 ns |
-| Unified natural language search | ~960 µs |
-| Unified search (typo tolerance) | ~826 µs |
-| Hybrid search (BM25 + Vibe) | ~44-47 µs |
+let mut index = VibeIndex::new();
+for token in &["fn", "main", "(", ")", "{", "println!", "(", "\"hello\"", ")"] {
+    index.add_token(token);
+}
 
-*All benchmarks run on release build, single core.*
+// Exact phrase search
+let results = index.phrase_search(&["println".into(), "(".into()]);
+
+// Unified search: NL query → phrase + fuzzy → ranked results
+let results = index.search("where is the println call");
+```
+
+## API surface
+
+| Module | Purpose |
+|--------|---------|
+| `VibeIndex` | Core: `add_token`, `phrase_search`, `fuzzy_search`, `search` |
+| `query_parser` | NL → phrases: splits camelCase, snake_case, `::` paths, generics, strips stop words |
+| `bm25` | Lightweight BM25 scorer for document-level candidate ranking |
+| `hybrid_search` | BM25 candidates → Vibe Index exact position validation |
+| `hot_cold` | In-memory hot buffer + disk-backed cold segments with cross-layer phrase search |
+| `persistent_storage` | Gzip-compressed token sequences, magic byte validation, save/load |
+| `prompt_injector` | Context window builder: search → filter by confidence → extract windows → build prompt |
+| `llama_cpp` | Full pipeline: index → search → build prompt → llama.cpp completion |
+| `vllm` | Hybrid search + context budget + output validation + confidence feedback loop |
+
+## How it compares
+
+| Approach | Matches | Latency | Use case |
+|----------|---------|---------|----------|
+| **Vibe Index** | Exact token positions + typo tolerance | 70ns - 977µs | Known phrase/symbol lookup |
+| **BM25** | Lexical term overlap (document-level) | ms | Keyword search, ranked retrieval |
+| **Embeddings** | Semantic similarity | 10-100ms | Conceptual search, different wording |
+
+**Hybrid pattern:** BM25/embeddings find candidate chunks → Vibe Index pinpoints exact positions inside them.
+
+## Query parser
+
+```rust
+use vibe_index::query_parser::parse_query;
+
+parse_query("how does authMiddlewareChain work?")
+// → [["auth", "middleware", "chain"], ["auth"], ["middleware"], ["chain"]]
+
+parse_query("std::collections::HashMap")
+// → [["std", "collections", "HashMap"], ["std"], ["collections"], ["HashMap"]]
+```
+
+Handles: camelCase, PascalCase, snake_case, kebab-case, `::` paths, generics (`Vec<String>`), acronyms.
+
+## Unified search
+
+`index.search(query)` is the high-level entry point:
+
+1. Parse query → phrases (via `query_parser`)
+2. Exact phrase matching on each phrase (confidence 0.95)
+3. Fuzzy Levenshtein matching per significant word (confidence 0.5)
+4. Deduplicate by position, sort by confidence descending
+
+## Limitations (honest)
+
+- **Bitmaps rebuilt on load** — persistent storage saves token sequences only; bitmaps are reconstructed by re-indexing. No separate bitmap persistence yet.
+- **No SIMD** — tested AVX2/AVX-512 on Roaring Bitmap iteration: 64-115% slower. Roaring's internal run-compression doesn't benefit from SIMD fixed-width operations. Not planned.
+- **String-based token keys** — `HashMap<String, RoaringBitmap>`. Switching to `HashMap<u32, RoaringBitmap>` with a token ID lexicon would save hash/allocation overhead per query.
+- **BM25 IDF computed on-the-fly** — not precomputed. Negligible impact for small doc sets, measurable at scale.
+- **Hot layer size fixed at creation** — `max_hot_tokens` is immutable after `HotColdIndex` construction.
 
 ## Status
 
-- [x] Core engine (phrase + fuzzy search)
-- [x] Benchmarks
-- [x] Query parser (natural language → search phrases)
-- [x] Llama.cpp integration (tested with Qwen3VL-4B)
+- [x] Core engine (exact phrase + fuzzy Levenshtein search)
+- [x] Query parser (NL → search phrases, case splitting, stop words)
+- [x] BM25 candidate retrieval
 - [x] Hybrid search (BM25 + Vibe Index)
+- [x] Hot/Cold layer with cross-layer phrase search
+- [x] Persistent storage (gzip token sequences, magic validation)
+- [x] Prompt injector (context window builder)
+- [x] Llama.cpp integration (tested with Qwen3VL-4B)
 - [x] vLLM integration (hybrid search, context budget, output validation, confidence feedback)
-- [x] Hot/Cold layer split (in-memory hot buffer + disk-based cold storage)
-- [x] Persistent storage (gzip-compressed token sequences with magic version validation)
-- [x] Cold layer phrase search (full cross-layer phrase matching)
-- [ ] Persistent bitmap storage (bitmaps rebuilt from token sequence on load)
-
-## Current Limitations
-
-- **Bitmaps not persisted separately** — Persistent storage saves gzip-compressed token sequences. Position bitmaps are rebuilt by re-indexing tokens on load.
-- **No SIMD acceleration** — Phrase search uses pure Rust iteration over Roaring Bitmaps. SIMD (AVX2/AVX-512) is planned for future optimization.
-- **No custom delta encoding** — Position compression relies on Roaring Bitmap's internal algorithms. Delta encoding + VByte encoding is planned for the cold layer.
-- **BM25 IDF calculated on-the-fly** — Not precomputed. Minor performance impact for large document sets.
-- **Hot layer size fixed at runtime** — `max_hot_tokens` must be set when creating `HotColdIndex`.
-
-## Contributing
-
-We welcome contributions! Please:
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Run tests and benchmarks (`cargo test && cargo bench`)
-4. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-5. Push to the branch (`git push origin feature/amazing-feature`)
-6. Open a Pull Request
+- [x] Benchmarks (criterion, 9 benchmarks)
+- [x] CI (build + test + bench + lint, Windows + Ubuntu)
+- [ ] Persistent bitmap storage
+- [ ] Token ID lexicon (u32 keys instead of String)
 
 ## License
 
