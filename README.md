@@ -1,6 +1,6 @@
 ﻿# Vibe Index
 
-**Sub-millisecond exact phrase retrieval for AI-assisted development.**
+**Roaring Bitmap-based positional phrase matching for sub-millisecond LLM context retrieval.**
 
 [![CI](https://github.com/mladenpop-oss/vibe-index/actions/workflows/ci.yml/badge.svg)](https://github.com/mladenpop-oss/vibe-index/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -20,9 +20,9 @@ Vibe Index replaces "similar" code retrieval with **exact** code at **exact** po
 | Metric | RAG (baseline) | Vibe Index |
 |--------|----------------|------------|
 | Context tokens per query | 8K-16K | 3K-6K |
-| Search latency | 50-300 ms | 4-30 µs |
+| Search latency | 50-300 ms | 69ns - 960µs |
 | Exact phrase match | No | Yes |
-| Typo tolerance | No | Yes |
+| Fuzzy search (Levenshtein) | No | Yes (distance ≤ 2) |
 | VRAM pressure | High (linear KV cache growth) | Low (dense, optimized) |
 
 Benchmarked on 50K token corpus, single core, release build.
@@ -30,9 +30,9 @@ Benchmarked on 50K token corpus, single core, release build.
 ## How it works
 
 1. Each unique token maps to a **Roaring Bitmap** of its positions
-2. Phrase matching uses **anchor-bitmap + contains()** over these bitmaps
+2. Phrase matching uses the smallest bitmap as anchor, then checks `contains()` at offset positions for all other tokens
 3. Results include surrounding context automatically
-4. Bitmap compression means it gets **faster** as your codebase grows
+4. Roaring Bitmap's internal compression means storage scales sub-linearly with codebase size
 
 ## Hybrid Search
 
@@ -203,12 +203,14 @@ powershell -ExecutionPolicy Bypass -File .\run_benchmark.ps1  # Windows
 
 | Benchmark | Time |
 |-----------|------|
-| Index 50K tokens | ~16 ms |
-| Phrase match (1 occurrence) | ~310 ns |
-| Phrase match (100 occurrences) | ~18 µs |
-| Phrase not found | ~190 ns |
-| Unified natural language search | ~2.6 ms |
-| Hybrid search (BM25 + Vibe) | ~105-147 µs |
+| Index 50K tokens | ~5.8 ms |
+| Index 10K tokens | ~1.1 ms |
+| Phrase match (2 tokens, 1 occurrence) | ~117 ns |
+| Phrase match (3 tokens, ~100 occurrences) | ~170 µs |
+| Phrase not found | ~69 ns |
+| Unified natural language search | ~960 µs |
+| Unified search (typo tolerance) | ~826 µs |
+| Hybrid search (BM25 + Vibe) | ~44-47 µs |
 
 *All benchmarks run on release build, single core.*
 
@@ -221,7 +223,18 @@ powershell -ExecutionPolicy Bypass -File .\run_benchmark.ps1  # Windows
 - [x] Hybrid search (BM25 + Vibe Index)
 - [x] vLLM integration (hybrid search, context budget, output validation, confidence feedback)
 - [x] Hot/Cold layer split (in-memory hot buffer + disk-based cold storage)
-- [x] Persistent storage (gzip-compressed index files with magic version validation)
+- [x] Persistent storage (gzip-compressed token sequences with magic version validation)
+- [ ] Cold layer search (placeholder only — hot layer search works)
+- [ ] Persistent bitmap storage (bitmaps rebuilt from token sequence on load)
+
+## Current Limitations
+
+- **Cold layer search not implemented** — Cold segments are persisted to disk but searching them is a placeholder. Only hot layer search is functional.
+- **Bitmaps not persisted separately** — Persistent storage saves gzip-compressed token sequences. Position bitmaps are rebuilt by re-indexing tokens on load.
+- **No SIMD acceleration** — Phrase search uses pure Rust iteration over Roaring Bitmaps. SIMD (AVX2/AVX-512) is planned for future optimization.
+- **No custom delta encoding** — Position compression relies on Roaring Bitmap's internal algorithms. Delta encoding + VByte encoding is planned for the cold layer.
+- **BM25 IDF calculated on-the-fly** — Not precomputed. Minor performance impact for large document sets.
+- **Hot layer size fixed at compile time** — `max_hot_tokens` must be set when creating `HotColdIndex`.
 
 ## Contributing
 
