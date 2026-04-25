@@ -79,7 +79,7 @@ impl ColdLayer {
         }
     }
 
-   /// Flush hot layer to cold storage
+    /// Flush hot layer to cold storage
     pub fn flush_segment(&mut self, hot_layer: &HotLayer) {
         if hot_layer.tokens.is_empty() {
             return;
@@ -92,7 +92,8 @@ impl ColdLayer {
         let mut positions_map: HashMap<String, String> = HashMap::new();
         for (token, bitmap) in &hot_layer.token_positions {
             let positions: Vec<u32> = bitmap.iter().collect();
-            let positions_json = serde_json::to_string(&positions).expect("Failed to serialize positions");
+            let positions_json =
+                serde_json::to_string(&positions).expect("Failed to serialize positions");
             positions_map.insert(token.clone(), positions_json);
         }
 
@@ -203,7 +204,10 @@ impl ColdLayer {
     }
 
     /// Deserialize bitmaps from a segment (returns None if not available)
-    pub fn deserialize_bitmaps(&self, segment: &ColdSegment) -> Option<HashMap<String, RoaringBitmap>> {
+    pub fn deserialize_bitmaps(
+        &self,
+        segment: &ColdSegment,
+    ) -> Option<HashMap<String, RoaringBitmap>> {
         let positions_map = segment.token_positions.as_ref()?;
         let mut result: HashMap<String, RoaringBitmap> = HashMap::new();
         for (token, positions_json) in positions_map {
@@ -321,7 +325,7 @@ impl HotColdIndex {
             }
         }
 
-       // Search cold layer segments using persisted bitmaps (or fallback to linear scan)
+        // Search cold layer segments using persisted bitmaps (or fallback to linear scan)
         for segment in &self.cold.segments {
             let segment_start = segment.start_pos as usize;
             let segment_end = segment_start + segment.token_count as usize;
@@ -352,7 +356,8 @@ impl HotColdIndex {
                         let mut found = true;
                         let mut cross_boundary = false;
                         for (query_offset, (_, bitmap)) in masks.iter().enumerate() {
-                            let expected_pos = pos as i64 + (query_offset as i64 - anchor_idx as i64);
+                            let expected_pos =
+                                pos as i64 + (query_offset as i64 - anchor_idx as i64);
                             if expected_pos < 0 {
                                 found = false;
                                 break;
@@ -381,7 +386,7 @@ impl HotColdIndex {
             }
 
             // Boundary scan: check last (query_len - 1) positions for cross-boundary matches
-            let boundary_start = segment_end.saturating_sub(query.len() as usize - 1);
+            let boundary_start = segment_end.saturating_sub(query.len() - 1);
             for i in boundary_start..segment_end {
                 let mut found = true;
                 for (j, q_token) in query.iter().enumerate() {

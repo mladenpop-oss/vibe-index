@@ -157,8 +157,9 @@ impl PersistentStorage {
             // Deserialize bitmaps directly from persisted data
             let mut token_positions: HashMap<String, RoaringBitmap> = HashMap::new();
             for (token, positions_json) in positions_map {
-                let positions: Vec<u32> = serde_json::from_str(&positions_json)
-                    .map_err(|e| anyhow::anyhow!("Failed to deserialize positions for '{}': {}", token, e))?;
+                let positions: Vec<u32> = serde_json::from_str(&positions_json).map_err(|e| {
+                    anyhow::anyhow!("Failed to deserialize positions for '{}': {}", token, e)
+                })?;
                 let mut bitmap = RoaringBitmap::new();
                 for pos in positions {
                     bitmap.push(pos);
@@ -197,8 +198,9 @@ impl PersistentStorage {
         let mut positions_map: HashMap<String, String> = HashMap::new();
         for (token, bitmap) in &index.token_positions {
             let positions: Vec<u32> = bitmap.iter().collect();
-            let positions_json = serde_json::to_string(&positions)
-                .map_err(|e| anyhow::anyhow!("Failed to serialize positions for '{}': {}", token, e))?;
+            let positions_json = serde_json::to_string(&positions).map_err(|e| {
+                anyhow::anyhow!("Failed to serialize positions for '{}': {}", token, e)
+            })?;
             positions_map.insert(token.clone(), positions_json);
         }
 

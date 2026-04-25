@@ -339,6 +339,7 @@ fn retrieve(chunks: &[Chunk], query: &[&str], top_k: usize) -> Vec<(usize, f64)>
     scored.into_iter().take(top_k).collect()
 }
 
+#[allow(dead_code)]
 struct Res {
     tokens_injected: usize,
     latency: std::time::Duration,
