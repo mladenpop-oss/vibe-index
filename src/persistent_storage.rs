@@ -54,7 +54,11 @@ impl PersistentStorage {
         if Path::new(&storage.index_path).exists() {
             match storage.load_from_disk() {
                 Ok(_) => {
-                    eprintln!("✅ Loaded {} tokens from {}", storage.index.total_positions(), storage.index_path);
+                    eprintln!(
+                        "✅ Loaded {} tokens from {}",
+                        storage.index.total_positions(),
+                        storage.index_path
+                    );
                 }
                 Err(e) => {
                     eprintln!("⚠️ Failed to load index: {}. Starting fresh.", e);
@@ -99,7 +103,11 @@ impl PersistentStorage {
 
         Self::save_index(&self.index, &self.index_path)?;
         self.dirty = false;
-        eprintln!("💾 Saved {} tokens to {}", self.index.total_positions(), self.index_path);
+        eprintln!(
+            "💾 Saved {} tokens to {}",
+            self.index.total_positions(),
+            self.index_path
+        );
         Ok(())
     }
 
@@ -115,7 +123,11 @@ impl PersistentStorage {
         // Validate version
         let version = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
         if version != VERSION {
-            return Err(anyhow::anyhow!("Incompatible index version: expected {}, got {}", VERSION, version));
+            return Err(anyhow::anyhow!(
+                "Incompatible index version: expected {}, got {}",
+                VERSION,
+                version
+            ));
         }
 
         // Deserialize the persistent index
@@ -127,7 +139,11 @@ impl PersistentStorage {
         let mut token_bytes = Vec::new();
         decoder.read_to_end(&mut token_bytes)?;
         let token_str = String::from_utf8(token_bytes)?;
-        let tokens: Vec<String> = token_str.split('\n').filter(|s| !s.is_empty()).map(String::from).collect();
+        let tokens: Vec<String> = token_str
+            .split('\n')
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect();
 
         // Rebuild index
         for token in &tokens {
@@ -144,7 +160,7 @@ impl PersistentStorage {
     /// Save index to disk
     fn save_index(index: &VibeIndex, path: &str) -> Result<(), anyhow::Error> {
         let token_sequence = &index.token_sequence;
-        
+
         // Serialize token sequence
         let token_str = token_sequence.join("\n");
         let token_bytes = token_str.into_bytes();
@@ -219,11 +235,11 @@ pub struct StorageStats {
 /// Batch import from a list of tokens
 pub fn batch_import(index_path: &str, tokens: Vec<&str>) -> Result<(), anyhow::Error> {
     let mut storage = PersistentStorage::new(index_path);
-    
+
     for token in tokens {
         storage.add_token(token);
     }
-    
+
     storage.save()?;
     Ok(())
 }
@@ -248,7 +264,7 @@ mod tests {
         let index_path = binding.to_str().unwrap();
 
         let mut storage = PersistentStorage::new(index_path);
-        
+
         // Add tokens
         for token in ["fn", "main", "(", ")", "{", "let", "x", "=", "42", ";"] {
             storage.add_token(token);
@@ -306,7 +322,9 @@ mod tests {
         let binding = temp_dir.join("batch.bin");
         let index_path = binding.to_str().unwrap();
 
-        let tokens = vec!["fn", "add", "(", "a", ":", "i32", ")", "→", "i32", "{", "a", "+", "1", "}"];
+        let tokens = vec![
+            "fn", "add", "(", "a", ":", "i32", ")", "→", "i32", "{", "a", "+", "1", "}",
+        ];
         batch_import(index_path, tokens).unwrap();
 
         let loaded = PersistentStorage::load(index_path);

@@ -42,16 +42,16 @@ async fn test_llama_cpp_integration() {
         vec!["fn".into(), "add".into()],
     ];
 
-    let (prompt, matches) = integration.build_vibe_prompt(
-        "What does the add function do?",
-        &context,
-        &search_queries,
-    );
+    let (prompt, matches) =
+        integration.build_vibe_prompt("What does the add function do?", &context, &search_queries);
 
     println!("Matches found: {}", matches.len());
     println!("Prompt size: {} bytes", prompt.len());
     assert!(!matches.is_empty(), "Should find at least one match");
-    assert!(prompt.contains("<context>"), "Prompt should contain context section");
+    assert!(
+        prompt.contains("<context>"),
+        "Prompt should contain context section"
+    );
 
     let response = integration.complete(&prompt).await;
     match response {
@@ -242,8 +242,14 @@ async fn test_llama_cpp_full_pipeline() {
     println!("=== END PROMPT ===\n");
 
     assert!(matches.len() >= 2, "Should find at least 2 matches");
-    assert!(prompt.contains("<context>"), "Prompt should contain context section");
-    assert!(prompt.contains("calculate_average"), "Prompt should mention calculate_average");
+    assert!(
+        prompt.contains("<context>"),
+        "Prompt should contain context section"
+    );
+    assert!(
+        prompt.contains("calculate_average"),
+        "Prompt should mention calculate_average"
+    );
 
     let response = integration.complete(&prompt).await;
     match response {

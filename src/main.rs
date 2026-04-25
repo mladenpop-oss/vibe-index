@@ -1,6 +1,6 @@
-﻿use vibe_index::VibeIndex;
-use vibe_index::query_parser::parse_query;
 use std::time::Instant;
+use vibe_index::query_parser::parse_query;
+use vibe_index::VibeIndex;
 
 fn main() {
     println!("=== Vibe Index Demo ===\n");
@@ -59,7 +59,10 @@ fn main() {
         println!("    Query: \"{}\"", query);
         println!("    Results: {} matches", results.len());
         for r in results.iter().take(3) {
-            println!("      [POS {}] conf={:.2} {}", r.position, r.confidence, r.context);
+            println!(
+                "      [POS {}] conf={:.2} {}",
+                r.position, r.confidence, r.context
+            );
         }
         println!();
     }
@@ -85,7 +88,12 @@ fn main() {
     let typos = vec![("execut", 2), ("fetc", 2), ("recors", 2)];
     for (query, max_dist) in typos {
         let results = index.fuzzy_search(query, max_dist);
-        println!("    '{}' (max_dist={}) -> {} matches", query, max_dist, results.len());
+        println!(
+            "    '{}' (max_dist={}) -> {} matches",
+            query,
+            max_dist,
+            results.len()
+        );
         for r in results {
             println!("      {} (conf={:.2})", r.context, r.confidence);
         }
@@ -107,8 +115,12 @@ fn main() {
         }
         let elapsed = start.elapsed();
         let avg_ns = elapsed.as_nanos() / 100_000u32 as u128;
-        println!("    '{}' -> avg {}ns ({:.2}ms total)",
-            query.join(" "), avg_ns, elapsed.as_secs_f64() * 1000.0);
+        println!(
+            "    '{}' -> avg {}ns ({:.2}ms total)",
+            query.join(" "),
+            avg_ns,
+            elapsed.as_secs_f64() * 1000.0
+        );
     }
 
     println!("\n=== Done ===");

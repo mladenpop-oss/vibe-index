@@ -86,7 +86,9 @@ impl ColdLayer {
 
         // Compress tokens using simple run-length encoding for demo
         // In production, use zstd or lz4
-        let token_bytes: Vec<u8> = hot_layer.tokens.iter()
+        let token_bytes: Vec<u8> = hot_layer
+            .tokens
+            .iter()
             .flat_map(|t| t.as_bytes().to_vec())
             .collect();
 
@@ -135,11 +137,14 @@ impl ColdLayer {
             return;
         }
 
-        for entry in fs::read_dir(dir).expect("Failed to read cold storage directory").flatten() {
+        for entry in fs::read_dir(dir)
+            .expect("Failed to read cold storage directory")
+            .flatten()
+        {
             if entry.path().extension().is_some_and(|ext| ext == "bin") {
                 let data = fs::read(entry.path()).expect("Failed to read segment file");
-                let segment: ColdSegment = serde_json::from_slice(&data)
-                    .expect("Failed to deserialize segment");
+                let segment: ColdSegment =
+                    serde_json::from_slice(&data).expect("Failed to deserialize segment");
                 self.segments.push(segment);
             }
         }
@@ -164,9 +169,10 @@ impl ColdLayer {
 
     /// Get total size of cold storage in bytes
     pub fn get_storage_size(&self) -> u64 {
-        self.segments.iter().map(|s| {
-            s.compressed_tokens.len() as u64 + s.compressed_bitmaps.len() as u64
-        }).sum()
+        self.segments
+            .iter()
+            .map(|s| s.compressed_tokens.len() as u64 + s.compressed_bitmaps.len() as u64)
+            .sum()
     }
 }
 
@@ -294,7 +300,9 @@ impl HotColdIndex {
             }
         } else {
             // Cold layer - return segment info
-            self.cold.get_context(global_pos, query_len).unwrap_or_else(|| "[Cold] Context not available".to_string())
+            self.cold
+                .get_context(global_pos, query_len)
+                .unwrap_or_else(|| "[Cold] Context not available".to_string())
         }
     }
 

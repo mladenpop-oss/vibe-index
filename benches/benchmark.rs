@@ -1,14 +1,14 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use vibe_index::{VibeIndex, hybrid_search::HybridSearcher};
+use vibe_index::{hybrid_search::HybridSearcher, VibeIndex};
 
 fn generate_large_codebase(num_tokens: usize) -> Vec<String> {
     let mut tokens = Vec::with_capacity(num_tokens);
     let common_tokens = vec![
-        "fn", "let", "mut", "if", "else", "for", "while", "return", "match", "use",
-        "pub", "struct", "impl", "trait", "enum", "async", "await", "self", "Self",
-        "String", "Vec", "Option", "Result", "Some", "None", "Ok", "Err", "true",
-        "false", "println!", "format!", "debug!", "info!", "warn!", "error!",
-        "(", ")", "{", "}", "[", "]", ";", ":", ",", ".", "<", ">", "=", "+", "-", "*", "/",
+        "fn", "let", "mut", "if", "else", "for", "while", "return", "match", "use", "pub",
+        "struct", "impl", "trait", "enum", "async", "await", "self", "Self", "String", "Vec",
+        "Option", "Result", "Some", "None", "Ok", "Err", "true", "false", "println!", "format!",
+        "debug!", "info!", "warn!", "error!", "(", ")", "{", "}", "[", "]", ";", ":", ",", ".",
+        "<", ">", "=", "+", "-", "*", "/",
     ];
 
     // Simulate realistic code patterns with some repetition
@@ -122,7 +122,7 @@ fn bench_unified_search(c: &mut Criterion) {
 
 fn bench_hybrid_search(c: &mut Criterion) {
     let mut hybrid = HybridSearcher::new(5);
-    
+
     // Create 10 documents of 500 tokens each
     let mut all_tokens = Vec::new();
     for doc_idx in 0..10 {
@@ -131,7 +131,10 @@ fn bench_hybrid_search(c: &mut Criterion) {
             if i % 100 == 0 {
                 all_tokens.push(format!("fn process_item_{}", doc_idx));
             } else {
-                for word in &["let", "mut", "result", "=", "self", ".", "method", "(", ")", ";", "true", "false"] {
+                for word in &[
+                    "let", "mut", "result", "=", "self", ".", "method", "(", ")", ";", "true",
+                    "false",
+                ] {
                     all_tokens.push(word.to_string());
                 }
             }

@@ -18,8 +18,8 @@ pub struct Bm25Index {
     pub documents: Vec<(usize, usize)>,
     num_docs: usize,
     avg_doc_len: f64,
-    k1: f64,  // term frequency saturation (default 1.5)
-    b: f64,   // length normalization (default 0.75)
+    k1: f64, // term frequency saturation (default 1.5)
+    b: f64,  // length normalization (default 0.75)
 }
 
 impl Default for Bm25Index {
@@ -49,9 +49,12 @@ impl Bm25Index {
 
     /// Index tokens - call after all documents added
     pub fn index_tokens(&mut self, tokens: &[String]) {
-        self.avg_doc_len = self.documents.iter()
+        self.avg_doc_len = self
+            .documents
+            .iter()
             .map(|(s, e)| (e - s) as f64)
-            .sum::<f64>() / self.num_docs as f64;
+            .sum::<f64>()
+            / self.num_docs as f64;
 
         // Build token frequency per document
         for (doc_idx, (start, end)) in self.documents.iter().enumerate() {
@@ -66,7 +69,9 @@ impl Bm25Index {
         }
 
         // Calculate IDF for each token
-        let idf_map: HashMap<String, f64> = self.doc_freq.iter()
+        let idf_map: HashMap<String, f64> = self
+            .doc_freq
+            .iter()
             .map(|(token, occurrences)| {
                 let df = occurrences.len();
                 let idf = (((self.num_docs as f64) - (df as f64) + 0.5) / ((df as f64) + 0.5)).ln();
@@ -88,20 +93,21 @@ impl Bm25Index {
 
         for query_token in query_tokens {
             if let Some(occurrences) = self.doc_freq.get(query_token.as_str()) {
-                        let idf = occurrences.iter()
-                            .map(|(_, _pos)| {
-                                // Simplified: calculate IDF on the fly
-                                let df = occurrences.len();
-                                (((self.num_docs as f64) - (df as f64) + 0.5) / ((df as f64) + 0.5)).ln().max(0.0)
-                            })
-                            .next()
-                            .unwrap_or(0.0);
+                let idf = occurrences
+                    .iter()
+                    .map(|(_, _pos)| {
+                        // Simplified: calculate IDF on the fly
+                        let df = occurrences.len();
+                        (((self.num_docs as f64) - (df as f64) + 0.5) / ((df as f64) + 0.5))
+                            .ln()
+                            .max(0.0)
+                    })
+                    .next()
+                    .unwrap_or(0.0);
 
                 for (doc_idx, _) in occurrences {
                     let doc_len = (self.documents[*doc_idx].1 - self.documents[*doc_idx].0) as f64;
-                    let tf = occurrences.iter()
-                        .filter(|(di, _)| *di == *doc_idx)
-                        .count() as f64;
+                    let tf = occurrences.iter().filter(|(di, _)| *di == *doc_idx).count() as f64;
 
                     let score = idf * (tf * (self.k1 + 1.0))
                         / (tf + self.k1 * (1.0 - self.b + self.b * doc_len / self.avg_doc_len));

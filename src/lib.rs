@@ -1,4 +1,4 @@
-﻿use roaring::RoaringBitmap;
+use roaring::RoaringBitmap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -54,7 +54,11 @@ impl VibeIndex {
         }
 
         // Find smallest bitmap to use as anchor (fewest iterations)
-        let anchor_idx = masks.iter().min_by_key(|(_, b)| b.len()).map(|(i, _)| *i).unwrap_or(0);
+        let anchor_idx = masks
+            .iter()
+            .min_by_key(|(_, b)| b.len())
+            .map(|(i, _)| *i)
+            .unwrap_or(0);
         let anchor_bitmap = masks.iter().find(|(i, _)| *i == anchor_idx).unwrap().1;
 
         // For each position in the smallest bitmap, check if all other positions align
@@ -91,11 +95,20 @@ impl VibeIndex {
                     .map(|s| s.as_str())
                     .collect();
                 let context = if context_end - context_start > 1 {
-                    format!("[POS {}] '{}' (context: ... {})", pos, query.join(" "), context_tokens.join(" "))
+                    format!(
+                        "[POS {}] '{}' (context: ... {})",
+                        pos,
+                        query.join(" "),
+                        context_tokens.join(" ")
+                    )
                 } else {
                     format!("[POS {}] matched: '{}'", pos, query.join(" "))
                 };
-                MatchResult { position: pos, context, confidence: 1.0 }
+                MatchResult {
+                    position: pos,
+                    context,
+                    confidence: 1.0,
+                }
             })
             .collect()
     }
@@ -108,7 +121,10 @@ impl VibeIndex {
                 for pos in bitmap.iter() {
                     results.push(MatchResult {
                         position: pos as usize,
-                        context: format!("[POS {}] fuzzy: '{}' (dist={}) -> '{}'", pos, stored_token, distance, query),
+                        context: format!(
+                            "[POS {}] fuzzy: '{}' (dist={}) -> '{}'",
+                            pos, stored_token, distance, query
+                        ),
                         confidence: 1.0 - (distance as f64 / (max_distance as f64 + 1.0)),
                     });
                 }
@@ -118,8 +134,8 @@ impl VibeIndex {
         results
     }
 
-   /// Unified search: natural language query → phrase search + fuzzy search → merged results
-    /// 
+    /// Unified search: natural language query → phrase search + fuzzy search → merged results
+    ///
     /// This is the high-level API. It:
     /// 1. Parses the query into search phrases using query_parser
     /// 2. Runs phrase_search on each phrase
@@ -142,7 +158,8 @@ impl VibeIndex {
         }
 
         // 2. Run fuzzy search for each significant word in the query
-        let stop_set: std::collections::HashSet<&str> = query_parser::ENGLISH_STOP_WORDS.iter().copied().collect();
+        let stop_set: std::collections::HashSet<&str> =
+            query_parser::ENGLISH_STOP_WORDS.iter().copied().collect();
         let words: Vec<&str> = query
             .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty())
@@ -163,7 +180,8 @@ impl VibeIndex {
 
         // 3. Sort by confidence (highest first), then by position
         all_results.sort_by(|a, b| {
-            b.confidence.partial_cmp(&a.confidence)
+            b.confidence
+                .partial_cmp(&a.confidence)
                 .unwrap_or(std::cmp::Ordering::Equal)
                 .then(a.position.cmp(&b.position))
         });
@@ -171,8 +189,12 @@ impl VibeIndex {
         all_results
     }
 
-    pub fn total_positions(&self) -> usize { self.position }
-    pub fn unique_tokens(&self) -> usize { self.token_positions.len() }
+    pub fn total_positions(&self) -> usize {
+        self.position
+    }
+    pub fn unique_tokens(&self) -> usize {
+        self.token_positions.len()
+    }
 }
 
 #[allow(clippy::needless_range_loop)]
@@ -181,29 +203,50 @@ fn levenshtein(a: &str, b: &str) -> usize {
     let b_chars: Vec<char> = b.chars().collect();
     let la = a_chars.len();
     let lb = b_chars.len();
-    if la == 0 { return lb; }
-    if lb == 0 { return la; }
+    if la == 0 {
+        return lb;
+    }
+    if lb == 0 {
+        return la;
+    }
     let mut matrix = vec![vec![0usize; lb + 1]; la + 1];
-    for i in 0..=la { matrix[i][0] = i; }
-    for j in 0..=lb { matrix[0][j] = j; }
+    for i in 0..=la {
+        matrix[i][0] = i;
+    }
+    for j in 0..=lb {
+        matrix[0][j] = j;
+    }
     for i in 1..=la {
         for j in 1..=lb {
-            let cost = if a_chars[i - 1] == b_chars[j - 1] { 0 } else { 1 };
-            matrix[i][j] = min(matrix[i - 1][j] + 1, min(matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost));
+            let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                0
+            } else {
+                1
+            };
+            matrix[i][j] = min(
+                matrix[i - 1][j] + 1,
+                min(matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost),
+            );
         }
     }
     matrix[la][lb]
 }
 
-fn min(a: usize, b: usize) -> usize { if a < b { a } else { b } }
+fn min(a: usize, b: usize) -> usize {
+    if a < b {
+        a
+    } else {
+        b
+    }
+}
 
 pub mod bm25;
-pub mod hybrid_search;
-pub mod query_parser;
-pub mod llama_cpp;
-pub mod vllm;
 pub mod hot_cold;
+pub mod hybrid_search;
+pub mod llama_cpp;
 pub mod persistent_storage;
+pub mod query_parser;
+pub mod vllm;
 
 #[cfg(test)]
 mod tests {
@@ -222,7 +265,9 @@ mod tests {
     #[test]
     fn test_phrase_search_exact() {
         let mut index = VibeIndex::new();
-        for token in ["fn", "main", "(", ")", "{"] { index.add_token(token); }
+        for token in ["fn", "main", "(", ")", "{"] {
+            index.add_token(token);
+        }
         let results = index.phrase_search(&["fn".into(), "main".into()]);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].position, 0);
@@ -231,7 +276,9 @@ mod tests {
     #[test]
     fn test_phrase_search_not_found() {
         let mut index = VibeIndex::new();
-        for token in ["fn", "main", "(", ")", "{"] { index.add_token(token); }
+        for token in ["fn", "main", "(", ")", "{"] {
+            index.add_token(token);
+        }
         let results = index.phrase_search(&["fn".into(), "not_here".into()]);
         assert!(results.is_empty());
     }
@@ -244,10 +291,12 @@ mod tests {
         assert_eq!(results.len(), 1);
     }
 
-   #[test]
+    #[test]
     fn test_phrase_search_multiple_matches() {
         let mut index = VibeIndex::new();
-        for token in ["fn", "a", "fn", "b", "fn", "a"] { index.add_token(token); }
+        for token in ["fn", "a", "fn", "b", "fn", "a"] {
+            index.add_token(token);
+        }
         let results = index.phrase_search(&["fn".into(), "a".into()]);
         assert_eq!(results.len(), 2);
     }
@@ -255,12 +304,37 @@ mod tests {
     #[test]
     fn test_search_phrase_match() {
         let mut index = VibeIndex::new();
-        for token in ["fn", "fetch", "data", "(", "db", ":", "&str", ")", "→", "Result", "{", "let", "conn", "=", "db.connect()", ";", "Ok", "(", "conn", ")", "}"] {
+        for token in [
+            "fn",
+            "fetch",
+            "data",
+            "(",
+            "db",
+            ":",
+            "&str",
+            ")",
+            "→",
+            "Result",
+            "{",
+            "let",
+            "conn",
+            "=",
+            "db.connect()",
+            ";",
+            "Ok",
+            "(",
+            "conn",
+            ")",
+            "}",
+        ] {
             index.add_token(token);
         }
         let results = index.search("where is the fetch data function");
         assert!(!results.is_empty(), "Should find fetch data");
-        assert!(results[0].confidence > 0.9, "Phrase match should have high confidence");
+        assert!(
+            results[0].confidence > 0.9,
+            "Phrase match should have high confidence"
+        );
     }
 
     #[test]
@@ -271,31 +345,107 @@ mod tests {
         }
         let results = index.search("where is the execut method");
         assert!(!results.is_empty(), "Should find execute via fuzzy match");
-        assert!(results.iter().any(|r| r.confidence < 0.9), "Fuzzy match should have lower confidence");
+        assert!(
+            results.iter().any(|r| r.confidence < 0.9),
+            "Fuzzy match should have lower confidence"
+        );
     }
 
     #[test]
     fn test_search_combined() {
         let mut index = VibeIndex::new();
-        for token in ["fn", "main", "(", ")", "{", "let", "mut", "cache", "=", "HashMap::new", "(", ")", ";", "cache", ".", "insert", "(", "\"key\"", ",", "42", ")", ";", "println!", "(", "\"done\"", ")", ";", "}", "fn", "process_data", "(", "data", ":", "&Vec", "<String>", ")", "→", "Result", "<()", "Error>", "{", "for", "item", "in", "data", "{", "results", ".", "push", "(", "item", ".", "to_uppercase", "(", ")", ")", ";", "}", "Ok", "(", "()", ")", "}"] {
+        for token in [
+            "fn",
+            "main",
+            "(",
+            ")",
+            "{",
+            "let",
+            "mut",
+            "cache",
+            "=",
+            "HashMap::new",
+            "(",
+            ")",
+            ";",
+            "cache",
+            ".",
+            "insert",
+            "(",
+            "\"key\"",
+            ",",
+            "42",
+            ")",
+            ";",
+            "println!",
+            "(",
+            "\"done\"",
+            ")",
+            ";",
+            "}",
+            "fn",
+            "process_data",
+            "(",
+            "data",
+            ":",
+            "&Vec",
+            "<String>",
+            ")",
+            "→",
+            "Result",
+            "<()",
+            "Error>",
+            "{",
+            "for",
+            "item",
+            "in",
+            "data",
+            "{",
+            "results",
+            ".",
+            "push",
+            "(",
+            "item",
+            ".",
+            "to_uppercase",
+            "(",
+            ")",
+            ")",
+            ";",
+            "}",
+            "Ok",
+            "(",
+            "()",
+            ")",
+            "}",
+        ] {
             index.add_token(token);
         }
         let results = index.search("how does the process_data function work");
         assert!(!results.is_empty(), "Should find process_data");
         // Should be sorted by confidence
         for i in 1..results.len() {
-            assert!(results[i-1].confidence >= results[i].confidence, "Results should be sorted by confidence");
+            assert!(
+                results[i - 1].confidence >= results[i].confidence,
+                "Results should be sorted by confidence"
+            );
         }
     }
 
     #[test]
     fn test_search_empty_query() {
         let mut index = VibeIndex::new();
-        for token in ["fn", "main", "(", ")", "{", "}", "fn", "add", "(", "a", "b", ")", "→", "i32", "{", "a", "+", "b", "}"] {
+        for token in [
+            "fn", "main", "(", ")", "{", "}", "fn", "add", "(", "a", "b", ")", "→", "i32", "{",
+            "a", "+", "b", "}",
+        ] {
             index.add_token(token);
         }
         let results = index.search("the a is");
         // Should return empty or very low confidence results (all stop words)
-        assert!(results.is_empty() || results.iter().all(|r| r.confidence < 0.1), "Stop-word-only query should return minimal results");
+        assert!(
+            results.is_empty() || results.iter().all(|r| r.confidence < 0.1),
+            "Stop-word-only query should return minimal results"
+        );
     }
 }

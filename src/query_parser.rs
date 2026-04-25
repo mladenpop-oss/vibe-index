@@ -4,18 +4,136 @@ use std::collections::HashSet;
 
 /// English stop words to filter out from queries
 pub const ENGLISH_STOP_WORDS: &[&str] = &[
-    "a", "about", "above", "after", "again", "against", "all", "am", "an", "and", "any", "are",
-    "as", "at", "be", "because", "been", "before", "being", "below", "between", "both", "but",
-    "by", "can", "could", "did", "do", "does", "doing", "down", "during", "each", "few", "for",
-    "from", "further", "get", "got", "had", "has", "have", "having", "he", "her", "here", "hers",
-    "herself", "him", "himself", "his", "how", "i", "if", "in", "into", "is", "it", "its",
-    "itself", "let's", "me", "might", "more", "most", "my", "myself", "nor", "not", "of",
-    "off", "on", "once", "only", "or", "other", "ought", "our", "ours", "ourselves", "out",
-    "over", "own", "s", "same", "she", "should", "so", "some", "such", "t", "than", "that",
-    "the", "their", "theirs", "them", "themselves", "then", "there", "these", "they", "this",
-    "those", "through", "to", "too", "under", "until", "up", "very", "was", "we", "were",
-    "what", "when", "where", "which", "while", "who", "whom", "why", "will", "with", "would",
-    "you", "your", "yours", "yourself", "yourselves",
+    "a",
+    "about",
+    "above",
+    "after",
+    "again",
+    "against",
+    "all",
+    "am",
+    "an",
+    "and",
+    "any",
+    "are",
+    "as",
+    "at",
+    "be",
+    "because",
+    "been",
+    "before",
+    "being",
+    "below",
+    "between",
+    "both",
+    "but",
+    "by",
+    "can",
+    "could",
+    "did",
+    "do",
+    "does",
+    "doing",
+    "down",
+    "during",
+    "each",
+    "few",
+    "for",
+    "from",
+    "further",
+    "get",
+    "got",
+    "had",
+    "has",
+    "have",
+    "having",
+    "he",
+    "her",
+    "here",
+    "hers",
+    "herself",
+    "him",
+    "himself",
+    "his",
+    "how",
+    "i",
+    "if",
+    "in",
+    "into",
+    "is",
+    "it",
+    "its",
+    "itself",
+    "let's",
+    "me",
+    "might",
+    "more",
+    "most",
+    "my",
+    "myself",
+    "nor",
+    "not",
+    "of",
+    "off",
+    "on",
+    "once",
+    "only",
+    "or",
+    "other",
+    "ought",
+    "our",
+    "ours",
+    "ourselves",
+    "out",
+    "over",
+    "own",
+    "s",
+    "same",
+    "she",
+    "should",
+    "so",
+    "some",
+    "such",
+    "t",
+    "than",
+    "that",
+    "the",
+    "their",
+    "theirs",
+    "them",
+    "themselves",
+    "then",
+    "there",
+    "these",
+    "they",
+    "this",
+    "those",
+    "through",
+    "to",
+    "too",
+    "under",
+    "until",
+    "up",
+    "very",
+    "was",
+    "we",
+    "were",
+    "what",
+    "when",
+    "where",
+    "which",
+    "while",
+    "who",
+    "whom",
+    "why",
+    "will",
+    "with",
+    "would",
+    "you",
+    "your",
+    "yours",
+    "yourself",
+    "yourselves",
 ];
 
 /// Split a compound identifier into its component tokens
@@ -32,10 +150,7 @@ pub fn split_identifier(ident: &str) -> Vec<String> {
     }
 
     // Handle generic types and punctuation: Vec<String>, Result<T, E>
-    let cleaned: String = ident
-        .chars()
-        .filter(|c| !matches!(c, '<' | '>'))
-        .collect();
+    let cleaned: String = ident.chars().filter(|c| !matches!(c, '<' | '>')).collect();
     if cleaned != ident {
         for part in cleaned.split(|c: char| c == ',' || c.is_whitespace()) {
             tokens.extend(split_camel_case(part));
@@ -85,7 +200,8 @@ fn split_camel_case_inner(ident: &str) -> Vec<String> {
 
         // lowercase -> uppercase OR uppercase->uppercase followed by lowercase
         if (prev.is_lowercase() && curr.is_uppercase())
-            || (prev.is_uppercase() && curr.is_uppercase()
+            || (prev.is_uppercase()
+                && curr.is_uppercase()
                 && i + 1 < chars.len()
                 && chars[i + 1].is_lowercase())
         {
@@ -185,7 +301,10 @@ mod tests {
     #[test]
     fn test_split_camel_case() {
         assert_eq!(split_camel_case("fetchData"), vec!["fetch", "data"]);
-        assert_eq!(split_camel_case("HTTPSConnection"), vec!["https", "connection"]);
+        assert_eq!(
+            split_camel_case("HTTPSConnection"),
+            vec!["https", "connection"]
+        );
         assert_eq!(split_camel_case("getURL"), vec!["get", "url"]);
         assert_eq!(split_camel_case("Simple"), vec!["simple"]);
         assert_eq!(split_camel_case("XMLParser"), vec!["xml", "parser"]);
@@ -196,12 +315,18 @@ mod tests {
     #[test]
     fn test_split_snake_case() {
         assert_eq!(split_identifier("fetch_data"), vec!["fetch", "data"]);
-        assert_eq!(split_identifier("my_variable_name"), vec!["my", "variable", "name"]);
+        assert_eq!(
+            split_identifier("my_variable_name"),
+            vec!["my", "variable", "name"]
+        );
     }
 
     #[test]
     fn test_split_kebab_case() {
-        assert_eq!(split_identifier("auth-middleware"), vec!["auth", "middleware"]);
+        assert_eq!(
+            split_identifier("auth-middleware"),
+            vec!["auth", "middleware"]
+        );
     }
 
     #[test]
@@ -218,21 +343,18 @@ mod tests {
 
     #[test]
     fn test_split_generics() {
-        assert_eq!(
-            split_identifier("Vec<String>"),
-            vec!["vec", "string"]
-        );
-        assert_eq!(
-            split_identifier("Result<T, E>"),
-            vec!["result", "t", "e"]
-        );
+        assert_eq!(split_identifier("Vec<String>"), vec!["vec", "string"]);
+        assert_eq!(split_identifier("Result<T, E>"), vec!["result", "t", "e"]);
     }
 
     #[test]
     fn test_parse_query_basic() {
         let phrases = parse_query("how does the auth middleware chain work");
         assert!(!phrases.is_empty(), "Should produce at least one phrase");
-        let all_words: Vec<&str> = phrases.iter().flat_map(|p| p.iter().map(|s| s.as_str())).collect();
+        let all_words: Vec<&str> = phrases
+            .iter()
+            .flat_map(|p| p.iter().map(|s| s.as_str()))
+            .collect();
         assert!(all_words.contains(&"auth"));
         assert!(all_words.contains(&"middleware"));
         assert!(all_words.contains(&"chain"));
@@ -241,7 +363,10 @@ mod tests {
     #[test]
     fn test_parse_query_removes_stop_words() {
         let phrases = parse_query("the quick brown fox");
-        let all_words: Vec<&str> = phrases.iter().flat_map(|p| p.iter().map(|s| s.as_str())).collect();
+        let all_words: Vec<&str> = phrases
+            .iter()
+            .flat_map(|p| p.iter().map(|s| s.as_str()))
+            .collect();
         assert!(!all_words.contains(&"the"));
         assert!(all_words.contains(&"quick"));
         assert!(all_words.contains(&"brown"));
@@ -251,7 +376,10 @@ mod tests {
     #[test]
     fn test_parse_query_with_code() {
         let phrases = parse_query("where is the fetch_data function defined");
-        let all_words: Vec<&str> = phrases.iter().flat_map(|p| p.iter().map(|s| s.as_str())).collect();
+        let all_words: Vec<&str> = phrases
+            .iter()
+            .flat_map(|p| p.iter().map(|s| s.as_str()))
+            .collect();
         assert!(all_words.contains(&"fetch"));
         assert!(all_words.contains(&"data"));
         assert!(all_words.contains(&"function"));
@@ -261,7 +389,10 @@ mod tests {
     #[test]
     fn test_parse_query_with_imports() {
         let phrases = parse_query("std::collections::HashMap usage");
-        let all_words: Vec<&str> = phrases.iter().flat_map(|p| p.iter().map(|s| s.as_str())).collect();
+        let all_words: Vec<&str> = phrases
+            .iter()
+            .flat_map(|p| p.iter().map(|s| s.as_str()))
+            .collect();
         assert!(all_words.contains(&"std"));
         assert!(all_words.contains(&"collections"));
         assert!(all_words.contains(&"hash"));
@@ -277,7 +408,10 @@ mod tests {
     #[test]
     fn test_parse_query_camelcase() {
         let phrases = parse_query("where is the fetchData function");
-        let all_words: Vec<&str> = phrases.iter().flat_map(|p| p.iter().map(|s| s.as_str())).collect();
+        let all_words: Vec<&str> = phrases
+            .iter()
+            .flat_map(|p| p.iter().map(|s| s.as_str()))
+            .collect();
         assert!(all_words.contains(&"fetch"));
         assert!(all_words.contains(&"data"));
     }
@@ -285,7 +419,10 @@ mod tests {
     #[test]
     fn test_parse_query_mixed() {
         let phrases = parse_query("how does the auth middleware chain work in the pipeline");
-        let all_words: Vec<&str> = phrases.iter().flat_map(|p| p.iter().map(|s| s.as_str())).collect();
+        let all_words: Vec<&str> = phrases
+            .iter()
+            .flat_map(|p| p.iter().map(|s| s.as_str()))
+            .collect();
         assert!(all_words.contains(&"auth"));
         assert!(all_words.contains(&"middleware"));
         assert!(all_words.contains(&"chain"));

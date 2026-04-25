@@ -1,5 +1,5 @@
-use crate::VibeIndex;
 use crate::MatchResult;
+use crate::VibeIndex;
 use std::time::Instant;
 
 /// llama.cpp integration module
@@ -77,11 +77,7 @@ impl LlamaCppIntegration {
 
             if start < end {
                 let window: Vec<String> = full_context[start..end].to_vec();
-                context_section.push_str(&format!(
-                    "  [POS {}] {}\n",
-                    pos,
-                    window.join(" ")
-                ));
+                context_section.push_str(&format!("  [POS {}] {}\n", pos, window.join(" ")));
             }
         }
 
@@ -94,14 +90,21 @@ impl LlamaCppIntegration {
         );
 
         let latency = start.elapsed().as_secs_f64() * 1000.0;
-        println!("[LLAMA] Built prompt: {} chars, {} matches, {:.2}ms",
-            prompt.len(), all_matches.len(), latency);
+        println!(
+            "[LLAMA] Built prompt: {} chars, {} matches, {:.2}ms",
+            prompt.len(),
+            all_matches.len(),
+            latency
+        );
 
         (prompt, all_matches)
     }
 
     /// Send completion request to llama.cpp server
-    pub async fn complete(&self, prompt: &str) -> Result<LlamaCppCompletionResponse, anyhow::Error> {
+    pub async fn complete(
+        &self,
+        prompt: &str,
+    ) -> Result<LlamaCppCompletionResponse, anyhow::Error> {
         let request = LlamaCppCompletionRequest {
             prompt: prompt.to_string(),
             n_predict: 512,
@@ -147,10 +150,7 @@ impl LlamaCppIntegration {
 
     /// Build prompt template for llama.cpp's built-in template system
     /// This can be saved as a .tmpl file for llama.cpp
-    pub fn build_template_file(
-        &self,
-        search_queries: &[Vec<String>],
-    ) -> String {
+    pub fn build_template_file(&self, search_queries: &[Vec<String>]) -> String {
         let mut template = String::from("{{- if .System }}{{ .System }}\n{{ end }}");
         template.push_str("\n{{- if .Prompt }}");
         template.push_str("\n<context>");
