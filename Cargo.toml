@@ -22,6 +22,10 @@ criterion = "0.5"
 name = "benchmark"
 harness = false
 
+[[bench]]
+name = "rag_comparison"
+harness = true
+
 [[example]]
 name = "real_code_benchmark"
 path = "examples/real_code_benchmark.rs"
