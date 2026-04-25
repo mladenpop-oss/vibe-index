@@ -12,22 +12,22 @@
 
 RAG pipelines stuff 8K-16K tokens into every LLM prompt, most irrelevant. Vibe Index finds **exact** phrases at **exact** positions in microseconds, then injects only the relevant context window.
 
-## Benchmarks (verified)
+## Benchmarks
 
 Measured on 50K token synthetic codebase, release build, single core, Windows 11:
 
 | Benchmark | Median time |
 |-----------|-------------|
-| Index 50K tokens | **5.75 ms** |
-| Index 10K tokens | **1.13 ms** |
+| Index 50K tokens | **5.81 ms** |
+| Index 10K tokens | **1.12 ms** |
 | Phrase match — 1 occurrence (`fn process_0`) | **117 ns** |
-| Phrase match — ~100 occurrences (`let mut result`) | **170 µs** |
+| Phrase match — ~100 occurrences (`let mut result`) | **164 µs** |
 | Phrase not found (early exit) | **70 ns** |
-| Unified NL search (`where is the process_item function`) | **977 µs** |
-| Unified search + typo tolerance (`proces_item fuction`) | **851 µs** |
-| Hybrid search — BM25 + Vibe (`connect database`) | **36 µs** |
-| Hybrid search — multi-match (`process item function`) | **47 µs** |
-| Vibe-only fallback (no BM25 hit) | **38 µs** |
+| Unified NL search (`where is the process_item function`) | **964 µs** |
+| Unified search + typo tolerance (`proces_item fuction`) | **830 µs** |
+| Hybrid search — BM25 + Vibe (`connect database`) | **44.5 µs** |
+| Hybrid search — multi-match (`process item function`) | **58.5 µs** |
+| Vibe-only fallback (no BM25 hit) | **51.7 µs** |
 
 **Tests: 41/41 passing** (39 unit + 2 llama.cpp integration)
 
