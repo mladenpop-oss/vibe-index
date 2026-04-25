@@ -29,7 +29,7 @@ Measured on 50K token synthetic codebase, release build, single core, Windows 11
 | Hybrid search — multi-match (`process item function`) | **47 µs** |
 | Vibe-only fallback (no BM25 hit) | **38 µs** |
 
-**Tests: 40/40 passing** (38 unit + 2 llama.cpp integration)
+**Tests: 41/41 passing** (39 unit + 2 llama.cpp integration)
 
 ## Architecture
 
@@ -72,8 +72,8 @@ let results = index.search("where is the println call");
 | `query_parser` | NL → phrases: splits camelCase, snake_case, `::` paths, generics, strips stop words |
 | `bm25` | Lightweight BM25 scorer for document-level candidate ranking |
 | `hybrid_search` | BM25 candidates → Vibe Index exact position validation |
-| `hot_cold` | In-memory hot buffer + disk-backed cold segments with cross-layer phrase search |
-| `persistent_storage` | Gzip-compressed token sequences, magic byte validation, save/load |
+| `hot_cold` | In-memory hot buffer + disk-backed cold segments with persisted bitmaps and cross-layer phrase search |
+| `persistent_storage` | Gzip-compressed token sequences + serialized bitmaps, magic byte validation, v2 format with backward compat |
 | `prompt_injector` | Context window builder: search → filter by confidence → extract windows → build prompt |
 | `llama_cpp` | Full pipeline: index → search → build prompt → llama.cpp completion |
 | `vllm` | Hybrid search + context budget + output validation + confidence feedback loop |
@@ -113,11 +113,11 @@ Handles: camelCase, PascalCase, snake_case, kebab-case, `::` paths, generics (`V
 
 ## Limitations (honest)
 
-- **Bitmaps rebuilt on load** — persistent storage saves token sequences only; bitmaps are reconstructed by re-indexing. No separate bitmap persistence yet.
 - **No SIMD** — tested AVX2/AVX-512 on Roaring Bitmap iteration: 64-115% slower. Roaring's internal run-compression doesn't benefit from SIMD fixed-width operations. Not planned.
 - **String-based token keys** — `HashMap<String, RoaringBitmap>`. Switching to `HashMap<u32, RoaringBitmap>` with a token ID lexicon would save hash/allocation overhead per query.
 - **BM25 IDF computed on-the-fly** — not precomputed. Negligible impact for small doc sets, measurable at scale.
 - **Hot layer size fixed at creation** — `max_hot_tokens` is immutable after `HotColdIndex` construction.
+- **Bitmap serialization uses JSON arrays** — positions stored as `[0, 1, 2, ...]` per token. Native Roaring binary format would be more compact but conflicts with serde trait methods.
 
 ## Status
 
@@ -132,7 +132,7 @@ Handles: camelCase, PascalCase, snake_case, kebab-case, `::` paths, generics (`V
 - [x] vLLM integration (hybrid search, context budget, output validation, confidence feedback)
 - [x] Benchmarks (criterion, 9 benchmarks)
 - [x] CI (build + test + bench + lint, Windows + Ubuntu)
-- [ ] Persistent bitmap storage
+- [x] Persistent bitmap storage (v2 format, backward compatible with v1)
 - [ ] Token ID lexicon (u32 keys instead of String)
 
 ## License
