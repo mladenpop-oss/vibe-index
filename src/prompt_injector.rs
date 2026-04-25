@@ -61,7 +61,8 @@ impl PromptInjector {
 
         // Step 4: Sort by position and extract relevant context windows
         all_matches.sort_by_key(|m| m.position);
-        let relevant_positions = self._extract_relevant_positions(&all_matches);
+        let relevant_positions =
+            self._extract_relevant_positions(&all_matches, full_context_tokens.len());
 
         // Step 5: Build optimized prompt
         let prompt_tokens = self._build_optimized_prompt(
@@ -94,15 +95,18 @@ impl PromptInjector {
         }
     }
 
-    fn _extract_relevant_positions(&self, matches: &[MatchResult]) -> Vec<usize> {
+    fn _extract_relevant_positions(
+        &self,
+        matches: &[MatchResult],
+        context_len: usize,
+    ) -> Vec<usize> {
         let mut positions = std::collections::BTreeSet::new();
 
         for m in matches {
-            // Add the matched position and surrounding context
             let window_size = 5;
             for offset in -window_size..=window_size {
                 let pos = (m.position as i64 + offset) as usize;
-                if pos < 1000 { // Reasonable upper bound
+                if pos < context_len {
                     positions.insert(pos);
                 }
             }
