@@ -65,7 +65,7 @@ impl VibeIndex {
             }
             if matches {
                 // Use the first query token's position as the match position
-                let first_bitmap = masks.first().unwrap().1;
+                let _first_bitmap = masks.first().unwrap().1;
                 let first_pos = pos as i64 - (anchor_idx as i64);
                 if first_pos >= 0 {
                     result.push(first_pos as u32);
@@ -194,6 +194,8 @@ pub mod bm25;
 pub mod hybrid_search;
 pub mod query_parser;
 pub mod llama_cpp;
+pub mod vllm;
+pub mod hot_cold;
 
 #[cfg(test)]
 mod tests {

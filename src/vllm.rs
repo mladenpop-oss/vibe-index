@@ -1,8 +1,5 @@
-use crate::bm25::Bm25Index;
+use super::{MatchResult, VibeIndex, query_parser};
 use crate::hybrid_search::HybridSearcher;
-use crate::query_parser;
-use crate::MatchResult;
-use crate::VibeIndex;
 use std::collections::HashMap;
 use std::time::Instant;
 
@@ -103,7 +100,7 @@ impl VllmIntegration {
 
         // 1. Parse query into phrases
         let stop_set: std::collections::HashSet<&str> = query_parser::ENGLISH_STOP_WORDS.iter().copied().collect();
-        let query_tokens: Vec<String> = user_query
+        let _query_tokens: Vec<String> = user_query
             .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty() && !stop_set.contains(s))
             .map(|s| s.to_lowercase())
@@ -232,7 +229,7 @@ impl VllmIntegration {
     pub fn validate_output(&self, generated_code: &str) -> OutputValidation {
         let mut issues = Vec::new();
         let mut syntax_valid = true;
-        let mut confidence_adjustment = 0.0;
+        let mut confidence_adjustment: f64 = 0.0;
 
         // Check for common syntax issues
         let brace_count = generated_code.chars().filter(|&c| c == '{').count() as i32
