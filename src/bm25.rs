@@ -82,9 +82,7 @@ impl Bm25Index {
         for query_token in query_tokens {
             if let Some(occurrences) = self.doc_freq.get(query_token.as_str()) {
                         let idf = occurrences.iter()
-                            .map(|(_, pos)| {
-                                let token = &self.all_tokens.iter()
-                                    .find(|t| t.as_str() == query_token.as_str());
+                            .map(|(_, _pos)| {
                                 // Simplified: calculate IDF on the fly
                                 let df = occurrences.len();
                                 (((self.num_docs as f64) - (df as f64) + 0.5) / ((df as f64) + 0.5)).ln().max(0.0)

@@ -31,7 +31,6 @@ jobs:
           name: benchmark-results
           path: |
             target/release/.criterion/
-            benchmark-results.json
 
   lint:
     runs-on: ubuntu-latest

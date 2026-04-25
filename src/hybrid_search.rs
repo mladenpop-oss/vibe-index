@@ -29,7 +29,7 @@ impl HybridSearcher {
     /// Index all tokens - call after all documents added
     pub fn index_tokens(&mut self, tokens: &[String]) {
         // Build Vibe Index
-        for (i, token) in tokens.iter().enumerate() {
+        for (_i, token) in tokens.iter().enumerate() {
             self.vibe.add_token(token);
         }
         // Build BM25 Index
