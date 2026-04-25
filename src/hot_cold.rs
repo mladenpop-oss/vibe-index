@@ -11,10 +11,8 @@ pub struct ColdSegment {
     pub start_pos: u32,
     /// Number of tokens in this segment
     pub token_count: u32,
-    /// Compressed token data (gzip)
-    pub compressed_tokens: Vec<u8>,
-    /// Delta-encoded position bitmaps
-    pub compressed_bitmaps: Vec<u8>,
+    /// Token sequence (JSON-serialized, stored as string for simplicity)
+    pub tokens_json: String,
 }
 
 /// Hot layer: recent tokens kept in memory for instant access
@@ -84,39 +82,13 @@ impl ColdLayer {
             return;
         }
 
-        // Compress tokens using simple run-length encoding for demo
-        // In production, use zstd or lz4
-        let token_bytes: Vec<u8> = hot_layer
-            .tokens
-            .iter()
-            .flat_map(|t| t.as_bytes().to_vec())
-            .collect();
-
-        // Simple gzip-like compression (in production, use flate2)
-        let compressed_tokens = token_bytes; // Placeholder - would use flate2::write::GzEncoder
-
-        // Compress position bitmaps using delta encoding
-        let mut compressed_bitmaps = Vec::new();
-        for bitmap in hot_layer.token_positions.values() {
-            let mut last_pos: u32 = 0;
-            for pos in bitmap.iter() {
-                let delta = pos - last_pos;
-                // Variable-byte encoding for delta
-                let mut v = delta;
-                while v >= 0x80 {
-                    compressed_bitmaps.push((v & 0x7F) as u8 | 0x80);
-                    v >>= 7;
-                }
-                compressed_bitmaps.push(v as u8);
-                last_pos = pos;
-            }
-        }
+        let tokens_json =
+            serde_json::to_string(&hot_layer.tokens).expect("Failed to serialize tokens");
 
         let segment = ColdSegment {
             start_pos: hot_layer.base_offset,
             token_count: hot_layer.tokens.len() as u32,
-            compressed_tokens,
-            compressed_bitmaps,
+            tokens_json,
         };
 
         self.segments.push(segment.clone());
@@ -152,26 +124,69 @@ impl ColdLayer {
         self.segments.sort_by_key(|s| s.start_pos);
     }
 
+    /// Deserialize tokens from a specific segment
+    pub fn deserialize_tokens(&self, segment: &ColdSegment) -> Vec<String> {
+        serde_json::from_str(&segment.tokens_json)
+            .expect("Failed to deserialize tokens from segment")
+    }
+
     /// Get context for a position in cold layer
-    pub fn get_context(&self, global_pos: usize, _query_len: usize) -> Option<String> {
+    pub fn get_context(
+        &self,
+        global_pos: usize,
+        query_len: usize,
+        context_window: usize,
+    ) -> Option<String> {
         for segment in &self.segments {
             let seg_start = segment.start_pos as usize;
             let seg_end = seg_start + segment.token_count as usize;
 
             if global_pos >= seg_start && global_pos < seg_end {
-                // In production, decompress and extract context
-                // For now, return placeholder
-                return Some(format!("[Cold] Segment {}-{}", seg_start, seg_end));
+                let tokens = self.deserialize_tokens(segment);
+                let local_pos = global_pos - seg_start;
+                let start = local_pos.saturating_sub(context_window);
+                let end = (local_pos + query_len).min(tokens.len());
+                if start < end {
+                    return Some(tokens[start..end].join(" "));
+                }
+                return Some(tokens.join(" "));
             }
         }
         None
+    }
+
+    /// Search a single cold segment for a phrase
+    pub fn segment_phrase_search(segment: &ColdSegment) -> Vec<(u32, String)> {
+        let tokens = Self::deserialize_tokens_static(&segment.tokens_json);
+        let mut results = Vec::new();
+        let seg_start = segment.start_pos;
+
+        if tokens.len() < 2 {
+            return results;
+        }
+
+        for i in 0..tokens.len().saturating_sub(1) {
+            if tokens[i] == tokens[i + 1] {
+                results.push((
+                    seg_start + i as u32,
+                    format!("[Cold] {}-{}", tokens[i], tokens[i + 1]),
+                ));
+            }
+        }
+
+        results
+    }
+
+    /// Deserialize tokens from a JSON string (static helper)
+    fn deserialize_tokens_static(tokens_json: &str) -> Vec<String> {
+        serde_json::from_str(tokens_json).expect("Failed to deserialize tokens from JSON")
     }
 
     /// Get total size of cold storage in bytes
     pub fn get_storage_size(&self) -> u64 {
         self.segments
             .iter()
-            .map(|s| s.compressed_tokens.len() as u64 + s.compressed_bitmaps.len() as u64)
+            .map(|s| s.tokens_json.len() as u64)
             .sum()
     }
 }
@@ -236,33 +251,72 @@ impl HotColdIndex {
     pub fn phrase_search(&self, query: &[String]) -> Vec<(u32, String)> {
         let mut results = Vec::new();
 
-        // Search hot layer
-        for token in query.iter() {
-            if let Some(bitmap) = self.hot.token_positions.get(token) {
-                for pos in bitmap.iter() {
-                    // Check if all query tokens are at consecutive positions
-                    let mut found = true;
-                    for (j, q_token) in query.iter().enumerate().skip(1) {
-                        let _target_pos = pos + j as u32;
-                        let token_at_pos = self.get_token_at(pos as usize + j);
+        if query.is_empty() {
+            return results;
+        }
+
+        // Search hot layer using bitmap intersection
+        let query_first = &query[0];
+        if let Some(first_bitmap) = self.hot.token_positions.get(query_first) {
+            for pos in first_bitmap.iter() {
+                let mut found = true;
+                for (j, q_token) in query.iter().enumerate().skip(1) {
+                    let target_pos = pos + j as u32;
+                    // Check if target position exists in hot layer
+                    let hot_start = self.hot.base_offset as usize;
+                    let hot_end = hot_start + self.hot.tokens.len();
+                    let abs_target = target_pos as usize;
+
+                    if abs_target >= hot_start && abs_target < hot_end {
+                        let local_idx = abs_target - hot_start;
+                        if local_idx < self.hot.tokens.len() {
+                            if self.hot.tokens[local_idx] != *q_token {
+                                found = false;
+                                break;
+                            }
+                        } else {
+                            found = false;
+                            break;
+                        }
+                    } else {
+                        // Check cold layer
+                        let token_at_pos = self.get_token_at(abs_target);
                         if token_at_pos.as_deref() != Some(q_token.as_str()) {
                             found = false;
                             break;
                         }
                     }
-                    if found {
-                        let context = self.get_context(pos as usize, query.len());
-                        results.push((pos, context));
-                    }
+                }
+                if found {
+                    let context = self.get_context(pos as usize, query.len());
+                    results.push((pos, context));
                 }
             }
         }
 
-        // Search cold layer (simplified - in production, would use bitmap intersection)
+        // Search cold layer segments (including cross-boundary matches)
         for segment in &self.cold.segments {
-            let _seg_start = segment.start_pos as usize;
-            // In production, decompress bitmaps and perform search
-            // For now, mark cold search as needing implementation
+            let tokens = self.cold.deserialize_tokens(segment);
+            if tokens.is_empty() {
+                continue;
+            }
+
+            for i in 0..tokens.len() {
+                let mut found = true;
+                for (j, q_token) in query.iter().enumerate() {
+                    let global_idx = segment.start_pos as usize + i + j;
+                    let token_at_pos = self.get_token_at(global_idx);
+                    if token_at_pos.as_deref() != Some(q_token.as_str()) {
+                        found = false;
+                        break;
+                    }
+                }
+                if found {
+                    let global_pos = segment.start_pos + i as u32;
+                    let context = self.get_context(global_pos as usize, query.len());
+                    results.push((global_pos, context));
+                }
+            }
         }
 
         results.sort_by_key(|(pos, _)| *pos);
@@ -281,7 +335,20 @@ impl HotColdIndex {
         }
 
         // Check cold layer
-        self.cold.get_context(global_pos, 1)
+        for segment in &self.cold.segments {
+            let seg_start = segment.start_pos as usize;
+            let seg_end = seg_start + segment.token_count as usize;
+
+            if global_pos >= seg_start && global_pos < seg_end {
+                let tokens = self.cold.deserialize_tokens(segment);
+                let local_idx = global_pos - seg_start;
+                if local_idx < tokens.len() {
+                    return Some(tokens[local_idx].clone());
+                }
+            }
+        }
+
+        None
     }
 
     /// Get context for a global position
@@ -301,7 +368,7 @@ impl HotColdIndex {
         } else {
             // Cold layer - return segment info
             self.cold
-                .get_context(global_pos, query_len)
+                .get_context(global_pos, query_len, 15)
                 .unwrap_or_else(|| "[Cold] Context not available".to_string())
         }
     }
@@ -373,5 +440,125 @@ mod tests {
         assert_eq!(stats.hot_tokens, 0);
         assert_eq!(stats.cold_segments, 0);
         assert_eq!(stats.total_tokens, 0);
+    }
+
+    #[test]
+    fn test_cold_phrase_search() {
+        let temp_dir = env::temp_dir().join("vibe_index_cold_search");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let mut index = HotColdIndex::new(temp_dir.to_str().unwrap(), 4);
+
+        // Add enough tokens to trigger a flush
+        for token in ["fn", "main", "(", ")", "{", "let", "mut", "cache"] {
+            index.add_token(token);
+        }
+
+        // "fn" and "main" should be in cold layer (positions 0, 1)
+        let results = index.phrase_search(&["fn".into(), "main".into()]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, 0); // Position 0
+
+        // "let" and "mut" should be in hot layer (positions 5, 6)
+        let results = index.phrase_search(&["let".into(), "mut".into()]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, 5); // Position 5
+    }
+
+    #[test]
+    fn test_cold_phrase_search_not_found() {
+        let temp_dir = env::temp_dir().join("vibe_index_cold_notfound");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let mut index = HotColdIndex::new(temp_dir.to_str().unwrap(), 4);
+
+        for token in ["fn", "main", "(", ")", "{", "let", "mut", "cache"] {
+            index.add_token(token);
+        }
+
+        // "not_here" and "found" should not match
+        let results = index.phrase_search(&["not_here".into(), "found".into()]);
+        assert_eq!(results.len(), 0);
+    }
+
+    #[test]
+    fn test_cold_context_retrieval() {
+        let temp_dir = env::temp_dir().join("vibe_index_cold_context");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let mut index = HotColdIndex::new(temp_dir.to_str().unwrap(), 4);
+
+        for token in ["fn", "main", "(", ")", "{", "let", "mut", "cache"] {
+            index.add_token(token);
+        }
+
+        // Get context for position 0 (cold layer)
+        let context = index.get_context(0, 2);
+        assert!(
+            !context.contains("[Cold] Context not available"),
+            "Context should be available from cold layer"
+        );
+    }
+
+    #[test]
+    fn test_persist_and_reload_cold_search() {
+        let temp_dir = env::temp_dir().join("vibe_index_persist_cold");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        // Create and flush
+        {
+            let mut index = HotColdIndex::new(temp_dir.to_str().unwrap(), 3);
+            for token in ["fn", "main", "(", ")", "{", "let", "mut", "cache"] {
+                index.add_token(token);
+            }
+            // index goes out of scope, cold segments are saved to disk
+        }
+
+        // Reload and search cold layer
+        let index = HotColdIndex::new(temp_dir.to_str().unwrap(), 100);
+
+        // "fn" and "main" should still be findable in cold layer
+        let results = index.phrase_search(&["fn".into(), "main".into()]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, 0);
+    }
+
+    #[test]
+    fn test_cold_segment_deserialize_tokens() {
+        let temp_dir = env::temp_dir().join("vibe_index_deser");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let cold = ColdLayer::new(temp_dir.to_str().unwrap());
+
+        let segment = ColdSegment {
+            start_pos: 0,
+            token_count: 5,
+            tokens_json: r#"["fn","main","(","{","}"]"#.to_string(),
+        };
+
+        let tokens = cold.deserialize_tokens(&segment);
+        assert_eq!(tokens.len(), 5);
+        assert_eq!(tokens[0], "fn");
+        assert_eq!(tokens[4], "}");
+    }
+
+    #[test]
+    fn test_cross_layer_phrase_search() {
+        let temp_dir = env::temp_dir().join("vibe_index_cross");
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        let mut index = HotColdIndex::new(temp_dir.to_str().unwrap(), 4);
+
+        // Tokens: fn(0) main(1) ( (2) ) (3) { (4) let(5) mut(6) cache(7)
+        // After flush at 4: cold = [fn, main, (, )], hot = [{, let, mut, cache]
+        for token in ["fn", "main", "(", ")", "{", "let", "mut", "cache"] {
+            index.add_token(token);
+        }
+
+        // Search across the boundary: ")" is last in cold, "{" is first in hot
+        // They are consecutive: position 3 (cold) and position 4 (hot)
+        let results = index.phrase_search(&[")".into(), "{".into()]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, 3); // ")" is at position 3
     }
 }

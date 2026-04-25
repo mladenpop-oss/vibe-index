@@ -224,17 +224,16 @@ powershell -ExecutionPolicy Bypass -File .\run_benchmark.ps1  # Windows
 - [x] vLLM integration (hybrid search, context budget, output validation, confidence feedback)
 - [x] Hot/Cold layer split (in-memory hot buffer + disk-based cold storage)
 - [x] Persistent storage (gzip-compressed token sequences with magic version validation)
-- [ ] Cold layer search (placeholder only — hot layer search works)
+- [x] Cold layer phrase search (full cross-layer phrase matching)
 - [ ] Persistent bitmap storage (bitmaps rebuilt from token sequence on load)
 
 ## Current Limitations
 
-- **Cold layer search not implemented** — Cold segments are persisted to disk but searching them is a placeholder. Only hot layer search is functional.
 - **Bitmaps not persisted separately** — Persistent storage saves gzip-compressed token sequences. Position bitmaps are rebuilt by re-indexing tokens on load.
 - **No SIMD acceleration** — Phrase search uses pure Rust iteration over Roaring Bitmaps. SIMD (AVX2/AVX-512) is planned for future optimization.
 - **No custom delta encoding** — Position compression relies on Roaring Bitmap's internal algorithms. Delta encoding + VByte encoding is planned for the cold layer.
 - **BM25 IDF calculated on-the-fly** — Not precomputed. Minor performance impact for large document sets.
-- **Hot layer size fixed at compile time** — `max_hot_tokens` must be set when creating `HotColdIndex`.
+- **Hot layer size fixed at runtime** — `max_hot_tokens` must be set when creating `HotColdIndex`.
 
 ## Contributing
 
