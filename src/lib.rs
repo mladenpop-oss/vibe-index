@@ -195,6 +195,19 @@ impl VibeIndex {
     pub fn unique_tokens(&self) -> usize {
         self.token_positions.len()
     }
+    /// Construct a VibeIndex from persisted data (with pre-built bitmaps)
+    pub fn from_persistent(
+        token_positions: HashMap<String, RoaringBitmap>,
+        token_sequence: Vec<String>,
+        position: usize,
+    ) -> Self {
+        Self {
+            token_positions,
+            token_sequence,
+            position,
+        }
+    }
+
     pub fn estimated_memory_bytes(&self) -> usize {
         let token_seq_bytes = self
             .token_sequence

@@ -1,13 +1,16 @@
 use crate::VibeIndex;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
+use roaring::RoaringBitmap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::Path;
 
 /// Magic bytes for file format validation
 const MAGIC: &[u8] = b"VIBE";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
+const LEGACY_VERSION: u32 = 1;
 
 /// Persistent storage format for VibeIndex
 #[derive(Debug, Serialize, Deserialize)]
@@ -18,6 +21,9 @@ pub struct PersistentIndex {
     total_tokens: u32,
     /// Token sequence (gzip compressed)
     compressed_tokens: Vec<u8>,
+    /// Serialized token position bitmaps (token -> base64-encoded roaring bitmap)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token_positions: Option<HashMap<String, String>>,
 }
 
 /// Persistent storage manager for VibeIndex
@@ -122,10 +128,11 @@ impl PersistentStorage {
 
         // Validate version
         let version = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
-        if version != VERSION {
+        if version != VERSION && version != LEGACY_VERSION {
             return Err(anyhow::anyhow!(
-                "Incompatible index version: expected {}, got {}",
+                "Incompatible index version: expected {} or {}, got {}",
                 VERSION,
+                LEGACY_VERSION,
                 version
             ));
         }
@@ -145,14 +152,30 @@ impl PersistentStorage {
             .map(String::from)
             .collect();
 
-        // Rebuild index
-        for token in &tokens {
-            self.index.add_token(token);
+        // Check if bitmaps are available (v2 format)
+        if let Some(positions_map) = persistent.token_positions {
+            // Deserialize bitmaps directly from persisted data
+            let mut token_positions: HashMap<String, RoaringBitmap> = HashMap::new();
+            for (token, positions_json) in positions_map {
+                let positions: Vec<u32> = serde_json::from_str(&positions_json)
+                    .map_err(|e| anyhow::anyhow!("Failed to deserialize positions for '{}': {}", token, e))?;
+                let mut bitmap = RoaringBitmap::new();
+                for pos in positions {
+                    bitmap.push(pos);
+                }
+                token_positions.insert(token, bitmap);
+            }
+            self.index = VibeIndex::from_persistent(
+                token_positions,
+                tokens,
+                persistent.total_tokens as usize,
+            );
+        } else {
+            // Legacy v1 format: rebuild bitmaps from token sequence
+            for token in &tokens {
+                self.index.add_token(token);
+            }
         }
-
-        // Load position bitmaps (they should already match the token sequence)
-        // In this implementation, we rebuild from the token sequence which is simpler
-        // and ensures consistency
 
         Ok(())
     }
@@ -170,11 +193,21 @@ impl PersistentStorage {
         encoder.write_all(&token_bytes)?;
         let compressed_tokens = encoder.finish()?;
 
+        // Serialize token position bitmaps
+        let mut positions_map: HashMap<String, String> = HashMap::new();
+        for (token, bitmap) in &index.token_positions {
+            let positions: Vec<u32> = bitmap.iter().collect();
+            let positions_json = serde_json::to_string(&positions)
+                .map_err(|e| anyhow::anyhow!("Failed to serialize positions for '{}': {}", token, e))?;
+            positions_map.insert(token.clone(), positions_json);
+        }
+
         // Create persistent index
         let persistent = PersistentIndex {
             version: VERSION,
             total_tokens: index.total_positions() as u32,
             compressed_tokens,
+            token_positions: Some(positions_map),
         };
 
         // Serialize to JSON for storage (in production, use bincode for smaller size)
@@ -368,5 +401,38 @@ mod tests {
         // Loading should fail gracefully
         let storage = PersistentStorage::load(index_path);
         assert_eq!(storage.total_tokens(), 0);
+    }
+
+    #[test]
+    fn test_bitmaps_loaded_from_disk() {
+        let temp_dir = env::temp_dir().join("vibe_index_bitmap_load");
+        let _ = fs::remove_dir_all(&temp_dir);
+        let binding = temp_dir.join("bitmap.bin");
+        let index_path = binding.to_str().unwrap();
+
+        // Create and save index
+        {
+            let mut storage = PersistentStorage::new(index_path);
+            for token in ["fn", "main", "(", ")", "{", "fn", "main", "("] {
+                storage.add_token(token);
+            }
+            storage.save().unwrap();
+        }
+
+        // Load and verify bitmaps are restored
+        let loaded = PersistentStorage::load(index_path);
+        assert_eq!(loaded.total_tokens(), 8);
+
+        // Verify bitmap data is correct (fn appears at positions 0 and 5)
+        let fn_bitmap = loaded.index.token_positions.get("fn").unwrap();
+        assert_eq!(fn_bitmap.len(), 2);
+        assert!(fn_bitmap.contains(0));
+        assert!(fn_bitmap.contains(5));
+
+        // Verify phrase search works with loaded bitmaps
+        let results = loaded.phrase_search(&["fn".into(), "main".into()]);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].position, 0);
+        assert_eq!(results[1].position, 5);
     }
 }

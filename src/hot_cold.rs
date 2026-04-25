@@ -13,6 +13,9 @@ pub struct ColdSegment {
     pub token_count: u32,
     /// Token sequence (JSON-serialized, stored as string for simplicity)
     pub tokens_json: String,
+    /// Token position bitmaps (token -> base64-encoded roaring bitmap)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_positions: Option<HashMap<String, String>>,
 }
 
 /// Hot layer: recent tokens kept in memory for instant access
@@ -76,7 +79,7 @@ impl ColdLayer {
         }
     }
 
-    /// Flush hot layer to cold storage
+   /// Flush hot layer to cold storage
     pub fn flush_segment(&mut self, hot_layer: &HotLayer) {
         if hot_layer.tokens.is_empty() {
             return;
@@ -85,10 +88,19 @@ impl ColdLayer {
         let tokens_json =
             serde_json::to_string(&hot_layer.tokens).expect("Failed to serialize tokens");
 
+        // Serialize token position bitmaps
+        let mut positions_map: HashMap<String, String> = HashMap::new();
+        for (token, bitmap) in &hot_layer.token_positions {
+            let positions: Vec<u32> = bitmap.iter().collect();
+            let positions_json = serde_json::to_string(&positions).expect("Failed to serialize positions");
+            positions_map.insert(token.clone(), positions_json);
+        }
+
         let segment = ColdSegment {
             start_pos: hot_layer.base_offset,
             token_count: hot_layer.tokens.len() as u32,
             tokens_json,
+            token_positions: Some(positions_map),
         };
 
         self.segments.push(segment.clone());
@@ -188,6 +200,21 @@ impl ColdLayer {
             .iter()
             .map(|s| s.tokens_json.len() as u64)
             .sum()
+    }
+
+    /// Deserialize bitmaps from a segment (returns None if not available)
+    pub fn deserialize_bitmaps(&self, segment: &ColdSegment) -> Option<HashMap<String, RoaringBitmap>> {
+        let positions_map = segment.token_positions.as_ref()?;
+        let mut result: HashMap<String, RoaringBitmap> = HashMap::new();
+        for (token, positions_json) in positions_map {
+            let positions: Vec<u32> = serde_json::from_str(positions_json).ok()?;
+            let mut bitmap = RoaringBitmap::new();
+            for pos in positions {
+                bitmap.push(pos);
+            }
+            result.insert(token.clone(), bitmap);
+        }
+        Some(result)
     }
 }
 
@@ -294,17 +321,71 @@ impl HotColdIndex {
             }
         }
 
-        // Search cold layer segments (including cross-boundary matches)
+       // Search cold layer segments using persisted bitmaps (or fallback to linear scan)
         for segment in &self.cold.segments {
-            let tokens = self.cold.deserialize_tokens(segment);
-            if tokens.is_empty() {
-                continue;
+            let segment_start = segment.start_pos as usize;
+            let segment_end = segment_start + segment.token_count as usize;
+            let bitmaps = self.cold.deserialize_bitmaps(segment);
+
+            if let Some(segment_bitmaps) = &bitmaps {
+                // Use bitmap-based search (same anchor-and-offset approach as hot layer)
+                let mut masks: Vec<(usize, &RoaringBitmap)> = Vec::new();
+                for (i, q_token) in query.iter().enumerate() {
+                    if let Some(bitmap) = segment_bitmaps.get(q_token) {
+                        masks.push((i, bitmap));
+                    } else {
+                        masks.clear();
+                        break;
+                    }
+                }
+
+                if !masks.is_empty() {
+                    // Find smallest bitmap as anchor
+                    let anchor_idx = masks
+                        .iter()
+                        .min_by_key(|(_, b)| b.len())
+                        .map(|(i, _)| *i)
+                        .unwrap_or(0);
+                    let anchor_bitmap = masks.iter().find(|(i, _)| *i == anchor_idx).unwrap().1;
+
+                    for pos in anchor_bitmap.iter() {
+                        let mut found = true;
+                        let mut cross_boundary = false;
+                        for (query_offset, (_, bitmap)) in masks.iter().enumerate() {
+                            let expected_pos = pos as i64 + (query_offset as i64 - anchor_idx as i64);
+                            if expected_pos < 0 {
+                                found = false;
+                                break;
+                            }
+                            let exp_pos = expected_pos as usize;
+                            if exp_pos >= segment_start && exp_pos < segment_end {
+                                if !bitmap.contains(expected_pos as u32) {
+                                    found = false;
+                                    break;
+                                }
+                            } else {
+                                cross_boundary = true;
+                                break;
+                            }
+                        }
+                        if found && !cross_boundary {
+                            let first_pos = pos as i64 - anchor_idx as i64;
+                            if first_pos >= 0 {
+                                let global_pos = first_pos as u32;
+                                let context = self.get_context(global_pos as usize, query.len());
+                                results.push((global_pos, context));
+                            }
+                        }
+                    }
+                }
             }
 
-            for i in 0..tokens.len() {
+            // Boundary scan: check last (query_len - 1) positions for cross-boundary matches
+            let boundary_start = segment_end.saturating_sub(query.len() as usize - 1);
+            for i in boundary_start..segment_end {
                 let mut found = true;
                 for (j, q_token) in query.iter().enumerate() {
-                    let global_idx = segment.start_pos as usize + i + j;
+                    let global_idx = i + j;
                     let token_at_pos = self.get_token_at(global_idx);
                     if token_at_pos.as_deref() != Some(q_token.as_str()) {
                         found = false;
@@ -312,8 +393,8 @@ impl HotColdIndex {
                     }
                 }
                 if found {
-                    let global_pos = segment.start_pos + i as u32;
-                    let context = self.get_context(global_pos as usize, query.len());
+                    let global_pos = i as u32;
+                    let context = self.get_context(i, query.len());
                     results.push((global_pos, context));
                 }
             }
@@ -534,6 +615,7 @@ mod tests {
             start_pos: 0,
             token_count: 5,
             tokens_json: r#"["fn","main","(","{","}"]"#.to_string(),
+            token_positions: None,
         };
 
         let tokens = cold.deserialize_tokens(&segment);
