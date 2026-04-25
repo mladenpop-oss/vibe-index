@@ -50,7 +50,7 @@ async fn test_llama_cpp_integration() {
 
     println!("Matches found: {}", matches.len());
     println!("Prompt size: {} bytes", prompt.len());
-    assert!(matches.len() >= 1, "Should find at least one match");
+    assert!(!matches.is_empty(), "Should find at least one match");
     assert!(prompt.contains("<context>"), "Prompt should contain context section");
 
     let response = integration.complete(&prompt).await;

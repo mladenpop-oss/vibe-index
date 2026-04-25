@@ -328,12 +328,12 @@ mod tests {
         let stats = storage.stats();
         assert_eq!(stats.total_tokens, 3);
         assert_eq!(stats.unique_tokens, 3);
-        assert_eq!(stats.is_dirty, true);
+        assert!(stats.is_dirty);
 
         storage.save().unwrap();
         let stats = storage.stats();
-        assert_eq!(stats.storage_size > 0, true);
-        assert_eq!(stats.is_dirty, false);
+        assert!(stats.storage_size > 0);
+        assert!(!stats.is_dirty);
     }
 
     #[test]

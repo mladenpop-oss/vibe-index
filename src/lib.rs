@@ -259,7 +259,7 @@ mod tests {
             index.add_token(token);
         }
         let results = index.search("where is the fetch data function");
-        assert!(results.len() >= 1, "Should find fetch data");
+        assert!(!results.is_empty(), "Should find fetch data");
         assert!(results[0].confidence > 0.9, "Phrase match should have high confidence");
     }
 
@@ -270,7 +270,7 @@ mod tests {
             index.add_token(token);
         }
         let results = index.search("where is the execut method");
-        assert!(results.len() >= 1, "Should find execute via fuzzy match");
+        assert!(!results.is_empty(), "Should find execute via fuzzy match");
         assert!(results.iter().any(|r| r.confidence < 0.9), "Fuzzy match should have lower confidence");
     }
 
@@ -281,7 +281,7 @@ mod tests {
             index.add_token(token);
         }
         let results = index.search("how does the process_data function work");
-        assert!(results.len() >= 1, "Should find process_data");
+        assert!(!results.is_empty(), "Should find process_data");
         // Should be sorted by confidence
         for i in 1..results.len() {
             assert!(results[i-1].confidence >= results[i].confidence, "Results should be sorted by confidence");
