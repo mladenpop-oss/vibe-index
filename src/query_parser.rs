@@ -57,7 +57,7 @@ fn split_camel_case(ident: &str) -> Vec<String> {
     let mut tokens = Vec::new();
 
     // First split on _ and - as word boundaries
-    for segment in ident.split(|c: char| c == '_' || c == '-') {
+    for segment in ident.split(['_', '-']) {
         if segment.is_empty() {
             continue;
         }
@@ -77,20 +77,17 @@ fn split_camel_case_inner(ident: &str) -> Vec<String> {
     let chars: Vec<char> = ident.chars().collect();
 
     // Find all split boundaries
+    // Find camelCase boundaries
     let mut boundaries: Vec<usize> = Vec::new();
     for i in 1..chars.len() {
         let prev = chars[i - 1];
         let curr = chars[i];
 
-        // lowercase -> uppercase: "fetch" in "fetchData"
-        if prev.is_lowercase() && curr.is_uppercase() {
-            boundaries.push(i);
-        }
-        // uppercase -> uppercase+lowercase: "HTTPS" in "HTTPSConnection"
-        else if prev.is_uppercase()
-            && curr.is_uppercase()
-            && i + 1 < chars.len()
-            && chars[i + 1].is_lowercase()
+        // lowercase -> uppercase OR uppercase->uppercase followed by lowercase
+        if (prev.is_lowercase() && curr.is_uppercase())
+            || (prev.is_uppercase() && curr.is_uppercase()
+                && i + 1 < chars.len()
+                && chars[i + 1].is_lowercase())
         {
             boundaries.push(i);
         }

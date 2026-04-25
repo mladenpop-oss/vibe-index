@@ -272,13 +272,13 @@ impl VllmIntegration {
         OutputValidation {
             syntax_valid,
             issues,
-            confidence_adjustment: confidence_adjustment.max(-0.5).min(0.0),
+            confidence_adjustment: confidence_adjustment.clamp(-0.5, 0.0),
         }
     }
 
     /// Update confidence history and adjust future search weights
     pub fn update_confidence_feedback(&mut self, query: &str, output_valid: bool) {
-        let entry = self.confidence_history.entry(query.to_string()).or_insert_with(Vec::new);
+        let entry = self.confidence_history.entry(query.to_string()).or_default();
         
         if output_valid {
             entry.push(1.0);

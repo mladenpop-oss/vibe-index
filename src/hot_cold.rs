@@ -41,7 +41,7 @@ impl HotLayer {
         let global_pos = self.tokens.len() as u32 + self.base_offset;
         self.token_positions
             .entry(token.to_string())
-            .or_insert_with(RoaringBitmap::new)
+            .or_default()
             .push(global_pos);
         self.tokens.push(token.to_string());
     }
@@ -95,7 +95,7 @@ impl ColdLayer {
 
         // Compress position bitmaps using delta encoding
         let mut compressed_bitmaps = Vec::new();
-        for (_token, bitmap) in &hot_layer.token_positions {
+        for bitmap in hot_layer.token_positions.values() {
             let mut last_pos: u32 = 0;
             for pos in bitmap.iter() {
                 let delta = pos - last_pos;
@@ -135,14 +135,12 @@ impl ColdLayer {
             return;
         }
 
-        for entry in fs::read_dir(dir).expect("Failed to read cold storage directory") {
-            if let Ok(entry) = entry {
-                if entry.path().extension().map_or(false, |ext| ext == "bin") {
-                    let data = fs::read(entry.path()).expect("Failed to read segment file");
-                    let segment: ColdSegment = serde_json::from_slice(&data)
-                        .expect("Failed to deserialize segment");
-                    self.segments.push(segment);
-                }
+        for entry in fs::read_dir(dir).expect("Failed to read cold storage directory").flatten() {
+            if entry.path().extension().is_some_and(|ext| ext == "bin") {
+                let data = fs::read(entry.path()).expect("Failed to read segment file");
+                let segment: ColdSegment = serde_json::from_slice(&data)
+                    .expect("Failed to deserialize segment");
+                self.segments.push(segment);
             }
         }
 
@@ -233,7 +231,7 @@ impl HotColdIndex {
         let mut results = Vec::new();
 
         // Search hot layer
-        for (_i, token) in query.iter().enumerate() {
+        for token in query.iter() {
             if let Some(bitmap) = self.hot.token_positions.get(token) {
                 for pos in bitmap.iter() {
                     // Check if all query tokens are at consecutive positions

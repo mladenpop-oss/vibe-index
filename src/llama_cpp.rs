@@ -76,7 +76,7 @@ impl LlamaCppIntegration {
             let end = (pos + context_window).min(full_context.len());
 
             if start < end {
-                let window: Vec<String> = full_context[start..end].iter().cloned().collect();
+                let window: Vec<String> = full_context[start..end].to_vec();
                 context_section.push_str(&format!(
                     "  [POS {}] {}\n",
                     pos,

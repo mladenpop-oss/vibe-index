@@ -22,6 +22,12 @@ pub struct Bm25Index {
     b: f64,   // length normalization (default 0.75)
 }
 
+impl Default for Bm25Index {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Bm25Index {
     pub fn new() -> Self {
         Self {
@@ -49,12 +55,13 @@ impl Bm25Index {
 
         // Build token frequency per document
         for (doc_idx, (start, end)) in self.documents.iter().enumerate() {
-            for pos in *start..*end {
-                let token = &tokens[pos];
+            #[allow(clippy::needless_range_loop)]
+            for idx in *start..*end {
+                let token = &tokens[idx];
                 self.doc_freq
                     .entry(token.clone())
-                    .or_insert_with(Vec::new)
-                    .push((doc_idx, pos));
+                    .or_default()
+                    .push((doc_idx, idx));
             }
         }
 

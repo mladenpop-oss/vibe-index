@@ -15,6 +15,12 @@ pub struct VibeIndex {
     position: usize,
 }
 
+impl Default for VibeIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VibeIndex {
     pub fn new() -> Self {
         Self {
@@ -27,7 +33,7 @@ impl VibeIndex {
     pub fn add_token(&mut self, token: &str) {
         self.token_positions
             .entry(token.to_string())
-            .or_insert_with(RoaringBitmap::new)
+            .or_default()
             .push(self.position as u32);
         self.token_sequence.push(token.to_string());
         self.position += 1;
@@ -169,6 +175,7 @@ impl VibeIndex {
     pub fn unique_tokens(&self) -> usize { self.token_positions.len() }
 }
 
+#[allow(clippy::needless_range_loop)]
 fn levenshtein(a: &str, b: &str) -> usize {
     let a_chars: Vec<char> = a.chars().collect();
     let b_chars: Vec<char> = b.chars().collect();
