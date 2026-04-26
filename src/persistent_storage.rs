@@ -1,4 +1,6 @@
 use crate::VibeIndex;
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use roaring::RoaringBitmap;
 use serde::{Deserialize, Serialize};
@@ -9,8 +11,9 @@ use std::path::Path;
 
 /// Magic bytes for file format validation
 const MAGIC: &[u8] = b"VIBE";
-const VERSION: u32 = 2;
-const LEGACY_VERSION: u32 = 1;
+const VERSION: u32 = 3;
+const LEGACY_V2: u32 = 2;
+const LEGACY_V1: u32 = 1;
 
 /// Persistent storage format for VibeIndex
 #[derive(Debug, Serialize, Deserialize)]
@@ -128,11 +131,12 @@ impl PersistentStorage {
 
         // Validate version
         let version = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
-        if version != VERSION && version != LEGACY_VERSION {
+        if version != VERSION && version != LEGACY_V2 && version != LEGACY_V1 {
             return Err(anyhow::anyhow!(
-                "Incompatible index version: expected {} or {}, got {}",
+                "Incompatible index version: expected {}, {}, or {}, got {}",
                 VERSION,
-                LEGACY_VERSION,
+                LEGACY_V2,
+                LEGACY_V1,
                 version
             ));
         }
@@ -152,18 +156,29 @@ impl PersistentStorage {
             .map(String::from)
             .collect();
 
-        // Check if bitmaps are available (v2 format)
+        // Check if bitmaps are available (v2/v3 format)
         if let Some(positions_map) = persistent.token_positions {
-            // Deserialize bitmaps directly from persisted data
             let mut token_positions: HashMap<String, RoaringBitmap> = HashMap::new();
-            for (token, positions_json) in positions_map {
-                let positions: Vec<u32> = serde_json::from_str(&positions_json).map_err(|e| {
-                    anyhow::anyhow!("Failed to deserialize positions for '{}': {}", token, e)
-                })?;
-                let mut bitmap = RoaringBitmap::new();
-                for pos in positions {
-                    bitmap.push(pos);
-                }
+            for (token, encoded) in positions_map {
+                let bitmap = if version == VERSION {
+                    // v3: native Roaring binary (base64-encoded)
+                    let buf = STANDARD.decode(&encoded).map_err(|e| {
+                        anyhow::anyhow!("Failed to decode bitmap for '{}': {}", token, e)
+                    })?;
+                    RoaringBitmap::deserialize_from(&buf[..]).map_err(|e| {
+                        anyhow::anyhow!("Failed to deserialize bitmap for '{}': {}", token, e)
+                    })?
+                } else {
+                    // v1/v2: JSON array of positions (legacy)
+                    let positions: Vec<u32> = serde_json::from_str(&encoded).map_err(|e| {
+                        anyhow::anyhow!("Failed to deserialize positions for '{}': {}", token, e)
+                    })?;
+                    let mut bitmap = RoaringBitmap::new();
+                    for pos in positions {
+                        bitmap.push(pos);
+                    }
+                    bitmap
+                };
                 token_positions.insert(token, bitmap);
             }
             self.index = VibeIndex::from_persistent(
@@ -194,14 +209,15 @@ impl PersistentStorage {
         encoder.write_all(&token_bytes)?;
         let compressed_tokens = encoder.finish()?;
 
-        // Serialize token position bitmaps
+        // Serialize token position bitmaps (native Roaring binary, base64-encoded)
         let mut positions_map: HashMap<String, String> = HashMap::new();
         for (token, bitmap) in &index.token_positions {
-            let positions: Vec<u32> = bitmap.iter().collect();
-            let positions_json = serde_json::to_string(&positions).map_err(|e| {
-                anyhow::anyhow!("Failed to serialize positions for '{}': {}", token, e)
+            let mut buf = Vec::with_capacity(bitmap.serialized_size());
+            bitmap.serialize_into(&mut buf).map_err(|e| {
+                anyhow::anyhow!("Failed to serialize bitmap for '{}': {}", token, e)
             })?;
-            positions_map.insert(token.clone(), positions_json);
+            let encoded = STANDARD.encode(&buf);
+            positions_map.insert(token.clone(), encoded);
         }
 
         // Create persistent index
