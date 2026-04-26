@@ -11,7 +11,8 @@ use std::path::Path;
 
 /// Magic bytes for file format validation
 const MAGIC: &[u8] = b"VIBE";
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
+const LEGACY_V3: u32 = 3;
 const LEGACY_V2: u32 = 2;
 const LEGACY_V1: u32 = 1;
 
@@ -23,8 +24,12 @@ pub struct PersistentIndex {
     /// Total number of tokens indexed
     total_tokens: u32,
     /// Token sequence (gzip compressed)
-    compressed_tokens: Vec<u8>,
-    /// Serialized token position bitmaps (token -> base64-encoded roaring bitmap)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compressed_tokens: Option<Vec<u8>>,
+    /// Token lexicon: list of unique token strings (index = token ID)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lexicon: Option<Vec<String>>,
+    /// Serialized token position bitmaps (token_id -> base64-encoded roaring bitmap)
     #[serde(skip_serializing_if = "Option::is_none")]
     token_positions: Option<HashMap<String, String>>,
 }
@@ -131,10 +136,12 @@ impl PersistentStorage {
 
         // Validate version
         let version = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
-        if version != VERSION && version != LEGACY_V2 && version != LEGACY_V1 {
+        if version != VERSION && version != LEGACY_V3 && version != LEGACY_V2 && version != LEGACY_V1
+        {
             return Err(anyhow::anyhow!(
-                "Incompatible index version: expected {}, {}, or {}, got {}",
+                "Incompatible index version: expected {}, {}, {}, or {}, got {}",
                 VERSION,
+                LEGACY_V3,
                 LEGACY_V2,
                 LEGACY_V1,
                 version
@@ -145,51 +152,111 @@ impl PersistentStorage {
         let serialized_len = 8; // magic + version
         let persistent: PersistentIndex = serde_json::from_slice(&data[serialized_len..])?;
 
-        // Decompress tokens
-        let mut decoder = GzDecoder::new(&persistent.compressed_tokens[..]);
-        let mut token_bytes = Vec::new();
-        decoder.read_to_end(&mut token_bytes)?;
-        let token_str = String::from_utf8(token_bytes)?;
-        let tokens: Vec<String> = token_str
-            .split('\n')
-            .filter(|s| !s.is_empty())
-            .map(String::from)
-            .collect();
+        if version == VERSION {
+            // v4: lexicon-based format with u32 token IDs
+            let lexicon: crate::TokenLexicon = if let Some(ref lex_entries) = persistent.lexicon {
+                let mut lex = crate::TokenLexicon::new();
+                for token in lex_entries {
+                    lex.get_or_insert(token);
+                }
+                lex
+            } else {
+                crate::TokenLexicon::new()
+            };
 
-        // Check if bitmaps are available (v2/v3 format)
-        if let Some(positions_map) = persistent.token_positions {
-            let mut token_positions: HashMap<String, RoaringBitmap> = HashMap::new();
-            for (token, encoded) in positions_map {
-                let bitmap = if version == VERSION {
-                    // v3: native Roaring binary (base64-encoded)
-                    let buf = STANDARD.decode(&encoded).map_err(|e| {
-                        anyhow::anyhow!("Failed to decode bitmap for '{}': {}", token, e)
-                    })?;
-                    RoaringBitmap::deserialize_from(&buf[..]).map_err(|e| {
-                        anyhow::anyhow!("Failed to deserialize bitmap for '{}': {}", token, e)
-                    })?
-                } else {
-                    // v1/v2: JSON array of positions (legacy)
-                    let positions: Vec<u32> = serde_json::from_str(&encoded).map_err(|e| {
-                        anyhow::anyhow!("Failed to deserialize positions for '{}': {}", token, e)
-                    })?;
-                    let mut bitmap = RoaringBitmap::new();
-                    for pos in positions {
-                        bitmap.push(pos);
+            let token_sequence: Vec<u32> = if let Some(ref compressed) = persistent.compressed_tokens
+            {
+                let mut decoder = GzDecoder::new(compressed.as_slice());
+                let mut token_bytes = Vec::new();
+                decoder.read_to_end(&mut token_bytes)?;
+                bincode::deserialize(&token_bytes).map_err(|e| {
+                    anyhow::anyhow!("Failed to deserialize token sequence: {}", e)
+                })?
+            } else {
+                Vec::new()
+            };
+
+            let token_positions: HashMap<u32, RoaringBitmap> =
+                if let Some(ref positions_map) = persistent.token_positions {
+                    let mut result = HashMap::new();
+                    for (id_str, encoded) in positions_map {
+                        let id: u32 = id_str.parse().map_err(|e| {
+                            anyhow::anyhow!("Invalid token ID '{}': {}", id_str, e)
+                        })?;
+                        let buf = STANDARD.decode(encoded).map_err(|e| {
+                            anyhow::anyhow!("Failed to decode bitmap for ID {}: {}", id, e)
+                        })?;
+                        let bitmap = RoaringBitmap::deserialize_from(&buf[..]).map_err(|e| {
+                            anyhow::anyhow!(
+                                "Failed to deserialize bitmap for ID {}: {}",
+                                id,
+                                e
+                            )
+                        })?;
+                        result.insert(id, bitmap);
                     }
-                    bitmap
+                    result
+                } else {
+                    HashMap::new()
                 };
-                token_positions.insert(token, bitmap);
-            }
+
             self.index = VibeIndex::from_persistent(
+                lexicon,
                 token_positions,
-                tokens,
+                token_sequence,
                 persistent.total_tokens as usize,
             );
         } else {
-            // Legacy v1 format: rebuild bitmaps from token sequence
-            for token in &tokens {
-                self.index.add_token(token);
+            // v1/v2/v3: legacy string-based format
+            let mut decoder = GzDecoder::new(persistent.compressed_tokens.as_ref().unwrap().as_slice());
+            let mut token_bytes = Vec::new();
+            decoder.read_to_end(&mut token_bytes)?;
+            let token_str = String::from_utf8(token_bytes)?;
+            let tokens: Vec<String> = token_str
+                .split('\n')
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .collect();
+
+            if let Some(ref positions_map) = persistent.token_positions {
+                let mut token_positions: HashMap<String, RoaringBitmap> = HashMap::new();
+                for (token, encoded) in positions_map {
+                    let bitmap = if version == LEGACY_V3 {
+                        let buf = STANDARD.decode(encoded).map_err(|e| {
+                            anyhow::anyhow!("Failed to decode bitmap for '{}': {}", token, e)
+                        })?;
+                        RoaringBitmap::deserialize_from(&buf[..]).map_err(|e| {
+                            anyhow::anyhow!(
+                                "Failed to deserialize bitmap for '{}': {}",
+                                token,
+                                e
+                            )
+                        })?
+                    } else {
+                        let positions: Vec<u32> = serde_json::from_str(encoded).map_err(|e| {
+                            anyhow::anyhow!(
+                                "Failed to deserialize positions for '{}': {}",
+                                token,
+                                e
+                            )
+                        })?;
+                        let mut bitmap = RoaringBitmap::new();
+                        for pos in positions {
+                            bitmap.push(pos);
+                        }
+                        bitmap
+                    };
+                    token_positions.insert(token.clone(), bitmap);
+                }
+                self.index = VibeIndex::from_legacy(
+                    token_positions,
+                    tokens,
+                    persistent.total_tokens as usize,
+                );
+            } else {
+                for token in &tokens {
+                    self.index.add_token(token);
+                }
             }
         }
 
@@ -198,40 +265,39 @@ impl PersistentStorage {
 
     /// Save index to disk
     fn save_index(index: &VibeIndex, path: &str) -> Result<(), anyhow::Error> {
-        let token_sequence = &index.token_sequence;
+        // Serialize token sequence as bincode Vec<u32>
+        let token_bytes = bincode::serialize(&index.token_sequence).map_err(|e| {
+            anyhow::anyhow!("Failed to serialize token sequence: {}", e)
+        })?;
 
-        // Serialize token sequence
-        let token_str = token_sequence.join("\n");
-        let token_bytes = token_str.into_bytes();
-
-        // Compress with gzip
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(&token_bytes)?;
         let compressed_tokens = encoder.finish()?;
 
-        // Serialize token position bitmaps (native Roaring binary, base64-encoded)
+        // Serialize lexicon
+        let lexicon: Vec<String> = index.lexicon.iter().map(|(_, t)| t.to_string()).collect();
+
+        // Serialize token position bitmaps keyed by u32 ID string
         let mut positions_map: HashMap<String, String> = HashMap::new();
-        for (token, bitmap) in &index.token_positions {
+        for (&token_id, bitmap) in &index.token_positions {
             let mut buf = Vec::with_capacity(bitmap.serialized_size());
             bitmap.serialize_into(&mut buf).map_err(|e| {
-                anyhow::anyhow!("Failed to serialize bitmap for '{}': {}", token, e)
+                anyhow::anyhow!("Failed to serialize bitmap for ID {}: {}", token_id, e)
             })?;
             let encoded = STANDARD.encode(&buf);
-            positions_map.insert(token.clone(), encoded);
+            positions_map.insert(token_id.to_string(), encoded);
         }
 
-        // Create persistent index
         let persistent = PersistentIndex {
             version: VERSION,
             total_tokens: index.total_positions() as u32,
-            compressed_tokens,
+            compressed_tokens: Some(compressed_tokens),
+            lexicon: Some(lexicon),
             token_positions: Some(positions_map),
         };
 
-        // Serialize to JSON for storage (in production, use bincode for smaller size)
         let json = serde_json::to_vec(&persistent)?;
 
-        // Write to disk with magic bytes and version
         let mut data = Vec::new();
         data.extend_from_slice(MAGIC);
         data.extend_from_slice(&VERSION.to_le_bytes());
@@ -442,7 +508,8 @@ mod tests {
         assert_eq!(loaded.total_tokens(), 8);
 
         // Verify bitmap data is correct (fn appears at positions 0 and 5)
-        let fn_bitmap = loaded.index.token_positions.get("fn").unwrap();
+        let fn_id = loaded.index.lexicon.get_id("fn").unwrap();
+        let fn_bitmap = loaded.index.token_positions.get(&fn_id).unwrap();
         assert_eq!(fn_bitmap.len(), 2);
         assert!(fn_bitmap.contains(0));
         assert!(fn_bitmap.contains(5));

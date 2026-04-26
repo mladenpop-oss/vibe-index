@@ -9,9 +9,62 @@ pub struct MatchResult {
     pub confidence: f64,
 }
 
+/// Bidirectional token lexicon: maps u32 ID <-> String token.
+/// All internal indexing uses u32 IDs for compact storage and faster hashing.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct TokenLexicon {
+    pub id_to_token: Vec<String>,
+    token_to_id: HashMap<String, u32>,
+}
+
+impl TokenLexicon {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Get or create a token ID for the given string.
+    pub fn get_or_insert(&mut self, token: &str) -> u32 {
+        if let Some(&id) = self.token_to_id.get(token) {
+            id
+        } else {
+            let id = self.id_to_token.len() as u32;
+            self.id_to_token.push(token.to_string());
+            self.token_to_id.insert(token.to_string(), id);
+            id
+        }
+    }
+
+    /// Look up a token string by its ID.
+    pub fn get_token(&self, id: u32) -> Option<&str> {
+        self.id_to_token.get(id as usize).map(|s| s.as_str())
+    }
+
+    /// Look up a token ID by its string.
+    pub fn get_id(&self, token: &str) -> Option<u32> {
+        self.token_to_id.get(token).copied()
+    }
+
+    /// Iterate over all (id, token) pairs.
+    pub fn iter(&self) -> impl Iterator<Item = (u32, &str)> + '_ {
+        self.id_to_token
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (i as u32, t.as_str()))
+    }
+
+    pub fn len(&self) -> usize {
+        self.id_to_token.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.id_to_token.is_empty()
+    }
+}
+
 pub struct VibeIndex {
-    pub token_positions: HashMap<String, RoaringBitmap>,
-    pub token_sequence: Vec<String>,
+    pub lexicon: TokenLexicon,
+    pub token_positions: HashMap<u32, RoaringBitmap>,
+    pub token_sequence: Vec<u32>,
     position: usize,
 }
 
@@ -24,6 +77,7 @@ impl Default for VibeIndex {
 impl VibeIndex {
     pub fn new() -> Self {
         Self {
+            lexicon: TokenLexicon::new(),
             token_positions: HashMap::new(),
             token_sequence: Vec::new(),
             position: 0,
@@ -31,12 +85,19 @@ impl VibeIndex {
     }
 
     pub fn add_token(&mut self, token: &str) {
+        let id = self.lexicon.get_or_insert(token);
         self.token_positions
-            .entry(token.to_string())
+            .entry(id)
             .or_default()
             .push(self.position as u32);
-        self.token_sequence.push(token.to_string());
+        self.token_sequence.push(id);
         self.position += 1;
+    }
+
+    /// Resolve a string query token to its lexicon ID.
+    /// Returns None if the token was never indexed.
+    fn resolve_token(&self, token: &str) -> Option<u32> {
+        self.lexicon.get_id(token)
     }
 
     pub fn phrase_search(&self, query: &[String]) -> Vec<MatchResult> {
@@ -44,10 +105,21 @@ impl VibeIndex {
             return Vec::new();
         }
 
+        // Resolve query tokens to IDs
+        let query_ids: Vec<u32> = query
+            .iter()
+            .filter_map(|t| self.resolve_token(t))
+            .collect();
+
+        // If any token wasn't found in the lexicon, no match is possible
+        if query_ids.len() != query.len() {
+            return Vec::new();
+        }
+
         // Collect bitmaps with their query indices
         let mut masks: Vec<(usize, &RoaringBitmap)> = Vec::new();
-        for (i, token) in query.iter().enumerate() {
-            match self.token_positions.get(token) {
+        for (i, &token_id) in query_ids.iter().enumerate() {
+            match self.token_positions.get(&token_id) {
                 Some(bitmap) => masks.push((i, bitmap)),
                 None => return Vec::new(),
             }
@@ -66,7 +138,6 @@ impl VibeIndex {
         for pos in anchor_bitmap.iter() {
             let mut matches = true;
             for (query_offset, (_, bitmap)) in masks.iter().enumerate() {
-                // Calculate expected position: anchor_pos + (query_offset - anchor_query_index)
                 let expected_pos = pos as i64 + (query_offset as i64 - anchor_idx as i64);
                 if expected_pos < 0 || !bitmap.contains(expected_pos as u32) {
                     matches = false;
@@ -74,7 +145,6 @@ impl VibeIndex {
                 }
             }
             if matches {
-                // Use the first query token's position as the match position
                 let _first_bitmap = masks.first().unwrap().1;
                 let first_pos = pos as i64 - (anchor_idx as i64);
                 if first_pos >= 0 {
@@ -83,6 +153,7 @@ impl VibeIndex {
             }
         }
 
+        let query_str = query.to_vec();
         result
             .iter()
             .map(|pos| {
@@ -92,17 +163,17 @@ impl VibeIndex {
                 let context_end = (pos + query_len).min(self.token_sequence.len());
                 let context_tokens: Vec<&str> = self.token_sequence[context_start..context_end]
                     .iter()
-                    .map(|s| s.as_str())
+                    .filter_map(|&id| self.lexicon.get_token(id))
                     .collect();
                 let context = if context_end - context_start > 1 {
                     format!(
                         "[POS {}] '{}' (context: ... {})",
                         pos,
-                        query.join(" "),
+                        query_str.join(" "),
                         context_tokens.join(" ")
                     )
                 } else {
-                    format!("[POS {}] matched: '{}'", pos, query.join(" "))
+                    format!("[POS {}] matched: '{}'", pos, query_str.join(" "))
                 };
                 MatchResult {
                     position: pos,
@@ -115,7 +186,12 @@ impl VibeIndex {
 
     pub fn fuzzy_search(&self, query: &str, max_distance: usize) -> Vec<MatchResult> {
         let mut results = Vec::new();
-        for (stored_token, bitmap) in &self.token_positions {
+        let id_to_token = &self.lexicon.id_to_token;
+        for (&id, bitmap) in &self.token_positions {
+            let stored_token = match id_to_token.get(id as usize) {
+                Some(t) => t.as_str(),
+                None => continue,
+            };
             let distance = levenshtein(query, stored_token);
             if distance <= max_distance && distance > 0 {
                 for pos in bitmap.iter() {
@@ -143,14 +219,15 @@ impl VibeIndex {
     /// 4. Merges all results, deduplicates by position, sorts by confidence
     pub fn search(&self, query: &str) -> Vec<MatchResult> {
         let mut all_results: Vec<MatchResult> = Vec::new();
-        let mut seen_positions: std::collections::HashSet<usize> = std::collections::HashSet::new();
+        let mut seen_positions: std::collections::HashSet<usize> =
+            std::collections::HashSet::new();
 
         // 1. Parse query into phrases and run phrase_search on each
         let phrases = query_parser::parse_query(query);
         for phrase in &phrases {
             let results = self.phrase_search(phrase);
             for mut r in results {
-                r.confidence = 0.95; // phrase matches get high confidence
+                r.confidence = 0.95;
                 if seen_positions.insert(r.position) {
                     all_results.push(r);
                 }
@@ -171,7 +248,7 @@ impl VibeIndex {
             }
             let fuzzy_results = self.fuzzy_search(word.to_lowercase().as_str(), 1);
             for mut r in fuzzy_results {
-                r.confidence *= 0.5; // fuzzy matches get lower confidence
+                r.confidence *= 0.5;
                 if seen_positions.insert(r.position) {
                     all_results.push(r);
                 }
@@ -195,31 +272,65 @@ impl VibeIndex {
     pub fn unique_tokens(&self) -> usize {
         self.token_positions.len()
     }
-    /// Construct a VibeIndex from persisted data (with pre-built bitmaps)
+
+    /// Construct a VibeIndex from persisted data (with pre-built bitmaps and lexicon)
     pub fn from_persistent(
-        token_positions: HashMap<String, RoaringBitmap>,
-        token_sequence: Vec<String>,
+        lexicon: TokenLexicon,
+        token_positions: HashMap<u32, RoaringBitmap>,
+        token_sequence: Vec<u32>,
         position: usize,
     ) -> Self {
         Self {
+            lexicon,
             token_positions,
             token_sequence,
             position,
         }
     }
 
+    /// Construct a VibeIndex from legacy persisted data (String-based, pre-v4).
+    /// Rebuilds the lexicon from the token sequence.
+    pub fn from_legacy(
+        token_positions: HashMap<String, RoaringBitmap>,
+        token_sequence: Vec<String>,
+        position: usize,
+    ) -> Self {
+        let mut lexicon = TokenLexicon::new();
+        let mut new_positions: HashMap<u32, RoaringBitmap> = HashMap::new();
+
+        // Rebuild lexicon and remap bitmaps
+        for (token, bitmap) in token_positions {
+            let id = lexicon.get_or_insert(&token);
+            new_positions.insert(id, bitmap);
+        }
+
+        let new_sequence: Vec<u32> = token_sequence
+            .iter()
+            .map(|t| lexicon.get_or_insert(t))
+            .collect();
+
+        Self {
+            lexicon,
+            token_positions: new_positions,
+            token_sequence: new_sequence,
+            position,
+        }
+    }
+
     pub fn estimated_memory_bytes(&self) -> usize {
-        let token_seq_bytes = self
-            .token_sequence
+        let lexicon_bytes: usize = self
+            .lexicon
+            .id_to_token
             .iter()
             .map(|s| s.capacity() + 24)
-            .sum::<usize>();
-        let bitmap_bytes = self
+            .sum();
+        let token_seq_bytes = self.token_sequence.len() * std::mem::size_of::<u32>();
+        let bitmap_bytes: usize = self
             .token_positions
-            .iter()
-            .map(|(k, bitmap)| k.capacity() + 24 + bitmap.serialized_size())
-            .sum::<usize>();
-        token_seq_bytes + bitmap_bytes
+            .values()
+            .map(|bitmap| std::mem::size_of::<u32>() + 24 + bitmap.serialized_size())
+            .sum();
+        lexicon_bytes + token_seq_bytes + bitmap_bytes
     }
 }
 

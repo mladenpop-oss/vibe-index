@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)](https://www.rust-lang.org)
 
-> Each token maps to a compressed Roaring Bitmap of its positions. Phrase matching becomes an anchor-and-offset scan over bitmaps — no embeddings, no vectors.
+> Each token maps to a compressed Roaring Bitmap of its positions via a u32 token ID lexicon. Phrase matching becomes an anchor-and-offset scan over bitmaps — no embeddings, no vectors.
 
 ## Why
 
@@ -18,28 +18,29 @@ Measured on 50K token synthetic codebase, release build, single core, Windows 11
 
 | Benchmark | Median time |
 |-----------|-------------|
-| Index 50K tokens | **5.81 ms** |
-| Index 10K tokens | **1.12 ms** |
-| Phrase match — 1 occurrence (`fn process_0`) | **117 ns** |
-| Phrase match — ~100 occurrences (`let mut result`) | **164 µs** |
-| Phrase not found (early exit) | **70 ns** |
-| Unified NL search (`where is the process_item function`) | **964 µs** |
-| Unified search + typo tolerance (`proces_item fuction`) | **830 µs** |
-| Hybrid search — BM25 + Vibe (`connect database`) | **44.5 µs** |
-| Hybrid search — multi-match (`process item function`) | **58.5 µs** |
-| Vibe-only fallback (no BM25 hit) | **51.7 µs** |
+| Index 50K tokens | **1.66 ms** |
+| Index 10K tokens | **375 µs** |
+| Phrase match — 1 occurrence (`fn process_0`) | **115 ns** |
+| Phrase match — ~100 occurrences (`let mut result`) | **193 µs** |
+| Phrase not found (early exit) | **84 ns** |
+| Unified NL search (`where is the process_item function`) | **961 µs** |
+| Unified search + typo tolerance (`proces_item fuction`) | **1.33 ms** |
+| Hybrid search — BM25 + Vibe (`connect database`) | **34 µs** |
+| Hybrid search — multi-match (`process item function`) | **56 µs** |
+| Vibe-only fallback (no BM25 hit) | **49 µs** |
 
 **Tests: 41/41 passing** (39 unit + 2 llama.cpp integration)
 
 ## Architecture
 
 ```
-Token stream → Roaring Bitmap per unique token → Phrase search via anchor bitmap + offset validation
+Token stream → TokenLexicon (u32 IDs) → Roaring Bitmap per token ID → Phrase search via anchor bitmap + offset validation
 ```
 
-1. `add_token("foo")` → bitmap for "foo" gets current position pushed
-2. `phrase_search(["foo", "bar"])` → pick smallest bitmap as anchor, iterate its positions, check if sibling tokens exist at `pos + offset`
+1. `add_token("foo")` → lexicon assigns u32 ID → bitmap for that ID gets current position pushed
+2. `phrase_search(["foo", "bar"])` → resolve IDs via lexicon → pick smallest bitmap as anchor, iterate its positions, check if sibling tokens exist at `pos + offset`
 3. Roaring Bitmap internal run-length compression keeps memory sub-linear
+4. Token lexicon eliminates per-token String allocation overhead (67-70% faster indexing)
 
 ## Quick start
 
@@ -68,7 +69,8 @@ let results = index.search("where is the println call");
 
 | Module | Purpose |
 |--------|---------|
-| `VibeIndex` | Core: `add_token`, `phrase_search`, `fuzzy_search`, `search` |
+| `TokenLexicon` | Bidirectional u32 ID ↔ String mapping for compact token storage |
+| `VibeIndex` | Core: `add_token`, `phrase_search`, `fuzzy_search`, `search`, `from_legacy` |
 | `query_parser` | NL → phrases: splits camelCase, snake_case, `::` paths, generics, strips stop words |
 | `bm25` | Lightweight BM25 scorer for document-level candidate ranking |
 | `hybrid_search` | BM25 candidates → Vibe Index exact position validation |
@@ -114,7 +116,6 @@ Handles: camelCase, PascalCase, snake_case, kebab-case, `::` paths, generics (`V
 ## Limitations (honest)
 
 - **No SIMD** — tested AVX2/AVX-512 on Roaring Bitmap iteration: 64-115% slower. Roaring's internal run-compression doesn't benefit from SIMD fixed-width operations. Not planned.
-- **String-based token keys** — `HashMap<String, RoaringBitmap>`. Switching to `HashMap<u32, RoaringBitmap>` with a token ID lexicon would save hash/allocation overhead per query.
 - **BM25 IDF computed on-the-fly** — not precomputed. Negligible impact for small doc sets, measurable at scale.
 - **Hot layer size fixed at creation** — `max_hot_tokens` is immutable after `HotColdIndex` construction.
 - **Bitmap serialization uses native Roaring binary** — positions stored in Roaring's on-disk format (base64-encoded in JSON envelope). Preserves internal run-length compression.
@@ -133,7 +134,8 @@ Handles: camelCase, PascalCase, snake_case, kebab-case, `::` paths, generics (`V
 - [x] Benchmarks (criterion, 9 benchmarks)
 - [x] CI (build + test + bench + lint, Windows + Ubuntu)
 - [x] Persistent bitmap storage (v3 format, backward compatible with v1/v2)
-- [ ] Token ID lexicon (u32 keys instead of String)
+- [x] Token ID lexicon (u32 keys instead of String)
+- [x] Persistent storage v4 (bincode token sequence, lexicon-aware)
 
 ## License
 

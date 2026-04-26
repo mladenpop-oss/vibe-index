@@ -68,7 +68,10 @@ impl HybridSearcher {
             let (doc_start, doc_end) = self.bm25.documents[doc_idx];
 
             // Extract document tokens
-            let doc_tokens: Vec<String> = self.vibe.token_sequence[doc_start..doc_end].to_vec();
+            let doc_tokens: Vec<String> = self.vibe.token_sequence[doc_start..doc_end]
+                .iter()
+                .filter_map(|&id| self.vibe.lexicon.get_token(id).map(|s| s.to_string()))
+                .collect();
 
             // Try phrase search on document tokens
             for i in 0..doc_tokens.len().saturating_sub(query_tokens.len() - 1) {
