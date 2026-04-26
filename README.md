@@ -1,4 +1,4 @@
-﻿# Vibe Index
+﻿# I WILL FINISH THIS BUT MOVED TO VIBE-INDEX-2 FOR NOW -FASTER - BETTER!!!!!  https://github.com/mladenpop-oss/vibe-index-2
 
 **Roaring Bitmap positional phrase matching for low-latency LLM context retrieval.**
 
