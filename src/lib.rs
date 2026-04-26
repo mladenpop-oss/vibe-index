@@ -91,8 +91,8 @@ impl TokenLexicon {
         let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
         let mut candidates: Vec<u32> = Vec::new();
 
-        for i in 0..bigram_count {
-            if let Some(ids) = self.bigram_index.get(&query_bigrams[i]) {
+        for bg in query_bigrams.iter().take(bigram_count) {
+            if let Some(ids) = self.bigram_index.get(bg) {
                 for &id in ids {
                     if seen.insert(id) {
                         candidates.push(id);
