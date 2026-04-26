@@ -90,11 +90,13 @@ impl ColdLayer {
         let tokens_json =
             serde_json::to_string(&hot_layer.tokens).expect("Failed to serialize tokens");
 
-       // Serialize token position bitmaps (native Roaring binary, base64-encoded)
+        // Serialize token position bitmaps (native Roaring binary, base64-encoded)
         let mut positions_map: HashMap<String, String> = HashMap::new();
         for (token, bitmap) in &hot_layer.token_positions {
             let mut buf = Vec::with_capacity(bitmap.serialized_size());
-            bitmap.serialize_into(&mut buf).expect("Failed to serialize bitmap");
+            bitmap
+                .serialize_into(&mut buf)
+                .expect("Failed to serialize bitmap");
             let encoded = STANDARD.encode(&buf);
             positions_map.insert(token.clone(), encoded);
         }
