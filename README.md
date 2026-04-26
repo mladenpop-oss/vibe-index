@@ -117,7 +117,7 @@ Handles: camelCase, PascalCase, snake_case, kebab-case, `::` paths, generics (`V
 - **String-based token keys** — `HashMap<String, RoaringBitmap>`. Switching to `HashMap<u32, RoaringBitmap>` with a token ID lexicon would save hash/allocation overhead per query.
 - **BM25 IDF computed on-the-fly** — not precomputed. Negligible impact for small doc sets, measurable at scale.
 - **Hot layer size fixed at creation** — `max_hot_tokens` is immutable after `HotColdIndex` construction.
-- **Bitmap serialization uses JSON arrays** — positions stored as `[0, 1, 2, ...]` per token. Native Roaring binary format would be more compact but conflicts with serde trait methods.
+- **Bitmap serialization uses native Roaring binary** — positions stored in Roaring's on-disk format (base64-encoded in JSON envelope). Preserves internal run-length compression.
 
 ## Status
 
@@ -132,7 +132,7 @@ Handles: camelCase, PascalCase, snake_case, kebab-case, `::` paths, generics (`V
 - [x] vLLM integration (hybrid search, context budget, output validation, confidence feedback)
 - [x] Benchmarks (criterion, 9 benchmarks)
 - [x] CI (build + test + bench + lint, Windows + Ubuntu)
-- [x] Persistent bitmap storage (v2 format, backward compatible with v1)
+- [x] Persistent bitmap storage (v3 format, backward compatible with v1/v2)
 - [ ] Token ID lexicon (u32 keys instead of String)
 
 ## License
