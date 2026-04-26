@@ -2,8 +2,12 @@
 name = "vibe-index"
 version = "0.1.0"
 edition = "2021"
-description = "Bit-level positional phrase matching for ultra-low-latency LLM context retrieval"
+description = "Sub-microsecond exact phrase matching for LLM context retrieval using Roaring bitmaps"
 license = "MIT"
+repository = "https://github.com/mladenpop-oss/vibe-index"
+readme = "README.md"
+keywords = ["llm", "rag", "phrase-search", "roaring-bitmap", "context-retrieval"]
+categories = ["algorithms", "data-structures", "command-line-utilities"]
 
 [dependencies]
 roaring = "0.10"
