@@ -18,16 +18,21 @@ Measured on 50K token synthetic codebase, release build, single core, Windows 11
 
 | Benchmark | Median time |
 |-----------|-------------|
-| Index 50K tokens | **1.66 ms** |
-| Index 10K tokens | **375 µs** |
-| Phrase match — 1 occurrence (`fn process_0`) | **115 ns** |
-| Phrase match — ~100 occurrences (`let mut result`) | **193 µs** |
-| Phrase not found (early exit) | **84 ns** |
-| Unified NL search (`where is the process_item function`) | **961 µs** |
-| Unified search + typo tolerance (`proces_item fuction`) | **1.33 ms** |
-| Hybrid search — BM25 + Vibe (`connect database`) | **34 µs** |
-| Hybrid search — multi-match (`process item function`) | **56 µs** |
-| Vibe-only fallback (no BM25 hit) | **49 µs** |
+| Index 50K tokens | **1.90 ms** |
+| Index 10K tokens | **432 µs** |
+| Phrase match — 1 occurrence (`fn process_0`) | **117 ns** |
+| Phrase match — ~100 occurrences (`let mut result`) | **197 µs** |
+| Phrase not found (early exit) | **86 ns** |
+| Fuzzy search — 1 char typo (`proces`) | **2.10 µs** |
+| Fuzzy search — 2 char typo (`proces`) | **65.79 µs** |
+| Fuzzy search — no match (early exit) | **126 ns** |
+| Unified NL search (`where is the process_item function`) | **117 µs** |
+| Unified search + typo tolerance (`proces_item fuction`) | **39.6 µs** |
+| Hybrid search — BM25 + Vibe (`connect database`) | **7.99 µs** |
+| Hybrid search — multi-match (`process item function`) | **11.74 µs** |
+| Vibe-only fallback (no BM25 hit) | **7.50 µs** |
+
+**fuzzy_search** uses character bigram prefiltering + length filtering to skip 97% of candidate tokens before computing Levenshtein distance.
 
 **Tests: 41/41 passing** (39 unit + 2 llama.cpp integration)
 
@@ -84,7 +89,7 @@ let results = index.search("where is the println call");
 
 | Approach | Matches | Latency | Use case |
 |----------|---------|---------|----------|
-| **Vibe Index** | Exact token positions + typo tolerance | 70ns - 977µs | Known phrase/symbol lookup |
+| **Vibe Index** | Exact token positions + typo tolerance | 70ns - 120µs | Known phrase/symbol lookup |
 | **BM25** | Lexical term overlap (document-level) | ms | Keyword search, ranked retrieval |
 | **Embeddings** | Semantic similarity | 10-100ms | Conceptual search, different wording |
 

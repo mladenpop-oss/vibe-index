@@ -15,6 +15,8 @@ pub struct MatchResult {
 pub struct TokenLexicon {
     pub id_to_token: Vec<String>,
     token_to_id: HashMap<String, u32>,
+    /// Character bigram → set of token IDs for fast fuzzy prefiltering
+    bigram_index: HashMap<[u8; 2], Vec<u32>>,
 }
 
 impl TokenLexicon {
@@ -30,6 +32,16 @@ impl TokenLexicon {
             let id = self.id_to_token.len() as u32;
             self.id_to_token.push(token.to_string());
             self.token_to_id.insert(token.to_string(), id);
+
+            // Build bigram index for fuzzy prefiltering
+            let bytes = token.as_bytes();
+            if bytes.len() >= 2 {
+                for i in 0..bytes.len() - 1 {
+                    let bigram = [bytes[i], bytes[i + 1]];
+                    self.bigram_index.entry(bigram).or_default().push(id);
+                }
+            }
+
             id
         }
     }
@@ -58,6 +70,38 @@ impl TokenLexicon {
 
     pub fn is_empty(&self) -> bool {
         self.id_to_token.is_empty()
+    }
+
+    /// Get candidate token IDs that share at least one character bigram with the query.
+    /// Returns None if query is too short for bigrams (all tokens are candidates).
+    pub fn get_bigram_candidates(&self, query: &str) -> Option<Vec<u32>> {
+        let bytes = query.as_bytes();
+        if bytes.len() < 2 {
+            return None;
+        }
+
+        // Collect query bigrams
+        let mut query_bigrams: Vec<[u8; 2]> = Vec::with_capacity(bytes.len().saturating_sub(1));
+        for i in 0..bytes.len().saturating_sub(1) {
+            query_bigrams.push([bytes[i], bytes[i + 1]]);
+        }
+        let bigram_count = query_bigrams.len();
+
+        // Collect all matching token IDs (deduplicated)
+        let mut seen: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        let mut candidates: Vec<u32> = Vec::new();
+
+        for i in 0..bigram_count {
+            if let Some(ids) = self.bigram_index.get(&query_bigrams[i]) {
+                for &id in ids {
+                    if seen.insert(id) {
+                        candidates.push(id);
+                    }
+                }
+            }
+        }
+
+        Some(candidates)
     }
 }
 
@@ -184,11 +228,33 @@ impl VibeIndex {
     pub fn fuzzy_search(&self, query: &str, max_distance: usize) -> Vec<MatchResult> {
         let mut results = Vec::new();
         let id_to_token = &self.lexicon.id_to_token;
-        for (&id, bitmap) in &self.token_positions {
+
+        // Bigram prefilter: only check tokens that share at least one bigram
+        let candidates = self.lexicon.get_bigram_candidates(query);
+
+        let id_iter: Box<dyn Iterator<Item = u32> + '_> = if let Some(cands) = candidates {
+            Box::new(cands.into_iter())
+        } else {
+            // Query too short for bigrams - fall back to all tokens
+            Box::new(self.token_positions.keys().copied())
+        };
+
+        for id in id_iter {
+            let bitmap = match self.token_positions.get(&id) {
+                Some(b) => b,
+                None => continue,
+            };
             let stored_token = match id_to_token.get(id as usize) {
                 Some(t) => t.as_str(),
                 None => continue,
             };
+
+            // Quick length filter: if length difference > max_distance, skip
+            let len_diff = (query.len() as isize - stored_token.len() as isize).unsigned_abs();
+            if len_diff > max_distance {
+                continue;
+            }
+
             let distance = levenshtein(query, stored_token);
             if distance <= max_distance && distance > 0 {
                 for pos in bitmap.iter() {

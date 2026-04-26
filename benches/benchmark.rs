@@ -98,6 +98,35 @@ fn bench_phrase_search(c: &mut Criterion) {
     });
 }
 
+fn bench_fuzzy_search(c: &mut Criterion) {
+    let mut index = VibeIndex::new();
+    let tokens = generate_large_codebase(50_000);
+    for token in &tokens {
+        index.add_token(token);
+    }
+
+    c.bench_function("fuzzy_search_typo_1char", |b| {
+        b.iter(|| {
+            let results = index.fuzzy_search("proces", 1);
+            black_box(results)
+        })
+    });
+
+    c.bench_function("fuzzy_search_typo_2char", |b| {
+        b.iter(|| {
+            let results = index.fuzzy_search("proces", 2);
+            black_box(results)
+        })
+    });
+
+    c.bench_function("fuzzy_search_no_match", |b| {
+        b.iter(|| {
+            let results = index.fuzzy_search("xyzabc", 1);
+            black_box(results)
+        })
+    });
+}
+
 fn bench_unified_search(c: &mut Criterion) {
     let mut index = VibeIndex::new();
     let tokens = generate_large_codebase(50_000);
@@ -169,6 +198,7 @@ criterion_group!(
     benches,
     bench_indexing,
     bench_phrase_search,
+    bench_fuzzy_search,
     bench_unified_search,
     bench_hybrid_search
 );
