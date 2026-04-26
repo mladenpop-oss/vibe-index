@@ -106,10 +106,7 @@ impl VibeIndex {
         }
 
         // Resolve query tokens to IDs
-        let query_ids: Vec<u32> = query
-            .iter()
-            .filter_map(|t| self.resolve_token(t))
-            .collect();
+        let query_ids: Vec<u32> = query.iter().filter_map(|t| self.resolve_token(t)).collect();
 
         // If any token wasn't found in the lexicon, no match is possible
         if query_ids.len() != query.len() {
@@ -219,8 +216,7 @@ impl VibeIndex {
     /// 4. Merges all results, deduplicates by position, sorts by confidence
     pub fn search(&self, query: &str) -> Vec<MatchResult> {
         let mut all_results: Vec<MatchResult> = Vec::new();
-        let mut seen_positions: std::collections::HashSet<usize> =
-            std::collections::HashSet::new();
+        let mut seen_positions: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
         // 1. Parse query into phrases and run phrase_search on each
         let phrases = query_parser::parse_query(query);

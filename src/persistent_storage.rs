@@ -136,7 +136,10 @@ impl PersistentStorage {
 
         // Validate version
         let version = u32::from_le_bytes([data[4], data[5], data[6], data[7]]);
-        if version != VERSION && version != LEGACY_V3 && version != LEGACY_V2 && version != LEGACY_V1
+        if version != VERSION
+            && version != LEGACY_V3
+            && version != LEGACY_V2
+            && version != LEGACY_V1
         {
             return Err(anyhow::anyhow!(
                 "Incompatible index version: expected {}, {}, {}, or {}, got {}",
@@ -164,14 +167,14 @@ impl PersistentStorage {
                 crate::TokenLexicon::new()
             };
 
-            let token_sequence: Vec<u32> = if let Some(ref compressed) = persistent.compressed_tokens
+            let token_sequence: Vec<u32> = if let Some(ref compressed) =
+                persistent.compressed_tokens
             {
                 let mut decoder = GzDecoder::new(compressed.as_slice());
                 let mut token_bytes = Vec::new();
                 decoder.read_to_end(&mut token_bytes)?;
-                bincode::deserialize(&token_bytes).map_err(|e| {
-                    anyhow::anyhow!("Failed to deserialize token sequence: {}", e)
-                })?
+                bincode::deserialize(&token_bytes)
+                    .map_err(|e| anyhow::anyhow!("Failed to deserialize token sequence: {}", e))?
             } else {
                 Vec::new()
             };
@@ -180,18 +183,14 @@ impl PersistentStorage {
                 if let Some(ref positions_map) = persistent.token_positions {
                     let mut result = HashMap::new();
                     for (id_str, encoded) in positions_map {
-                        let id: u32 = id_str.parse().map_err(|e| {
-                            anyhow::anyhow!("Invalid token ID '{}': {}", id_str, e)
-                        })?;
+                        let id: u32 = id_str
+                            .parse()
+                            .map_err(|e| anyhow::anyhow!("Invalid token ID '{}': {}", id_str, e))?;
                         let buf = STANDARD.decode(encoded).map_err(|e| {
                             anyhow::anyhow!("Failed to decode bitmap for ID {}: {}", id, e)
                         })?;
                         let bitmap = RoaringBitmap::deserialize_from(&buf[..]).map_err(|e| {
-                            anyhow::anyhow!(
-                                "Failed to deserialize bitmap for ID {}: {}",
-                                id,
-                                e
-                            )
+                            anyhow::anyhow!("Failed to deserialize bitmap for ID {}: {}", id, e)
                         })?;
                         result.insert(id, bitmap);
                     }
@@ -208,7 +207,8 @@ impl PersistentStorage {
             );
         } else {
             // v1/v2/v3: legacy string-based format
-            let mut decoder = GzDecoder::new(persistent.compressed_tokens.as_ref().unwrap().as_slice());
+            let mut decoder =
+                GzDecoder::new(persistent.compressed_tokens.as_ref().unwrap().as_slice());
             let mut token_bytes = Vec::new();
             decoder.read_to_end(&mut token_bytes)?;
             let token_str = String::from_utf8(token_bytes)?;
@@ -226,11 +226,7 @@ impl PersistentStorage {
                             anyhow::anyhow!("Failed to decode bitmap for '{}': {}", token, e)
                         })?;
                         RoaringBitmap::deserialize_from(&buf[..]).map_err(|e| {
-                            anyhow::anyhow!(
-                                "Failed to deserialize bitmap for '{}': {}",
-                                token,
-                                e
-                            )
+                            anyhow::anyhow!("Failed to deserialize bitmap for '{}': {}", token, e)
                         })?
                     } else {
                         let positions: Vec<u32> = serde_json::from_str(encoded).map_err(|e| {
@@ -266,9 +262,8 @@ impl PersistentStorage {
     /// Save index to disk
     fn save_index(index: &VibeIndex, path: &str) -> Result<(), anyhow::Error> {
         // Serialize token sequence as bincode Vec<u32>
-        let token_bytes = bincode::serialize(&index.token_sequence).map_err(|e| {
-            anyhow::anyhow!("Failed to serialize token sequence: {}", e)
-        })?;
+        let token_bytes = bincode::serialize(&index.token_sequence)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize token sequence: {}", e))?;
 
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(&token_bytes)?;
