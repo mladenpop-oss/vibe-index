@@ -9,6 +9,9 @@
 RAG pipelines stuff 8K–16K tokens into every LLM prompt — most irrelevant. Vibe Index finds **exact phrases at exact positions in microseconds**, then injects only the relevant context window. 95% less tokens, 100x faster than embedding search.
 
 ### The problem
+Basically it's a superfast exact phrase search for code. You index your files, then it finds "fn authenticate" at exactly line 42 in 111 nanoseconds.
+
+The whole point is regular retrievers (embeddings, BM25) find the right chunk but can't tell you where inside that chunk the answer is. So you waste tokens stuffing the whole chunk into the LLM prompt. Vibe Index finds the exact line, so you only inject what you actually need. 
 
 When you build a RAG pipeline, your retriever (embeddings, BM25, etc.) finds relevant chunks — but it can't tell you **where** inside those chunks the answer lives. So you inject the entire chunk (1K–4K tokens) into the LLM prompt, even though the actual answer might be 2–3 lines.
 
