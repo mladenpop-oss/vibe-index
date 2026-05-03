@@ -66,9 +66,11 @@ fn scan_rust_files(base_path: &str) -> Vec<DocTokens> {
 /// Get actix-web codebase from actual source files
 fn get_realistic_codebase() -> Vec<DocTokens> {
     let paths = [
-        r"C:\Users\Daddy\Documents\pROJECT\actix-web-main\actix-web-main",
-        r"..\actix-web-main\actix-web-main",
-        r"..\..\actix-web-main\actix-web-main",
+        "actix-web-main/actix-web-main",
+        "../actix-web-main/actix-web-main",
+        "../../actix-web-main/actix-web-main",
+        "src",
+        "../src",
     ];
 
     for path in &paths {
@@ -79,7 +81,7 @@ fn get_realistic_codebase() -> Vec<DocTokens> {
         }
     }
 
-    eprintln!("Warning: Could not find actix-web source");
+    eprintln!("Warning: Could not find actix-web source or src directory");
     Vec::new()
 }
 
@@ -1115,14 +1117,6 @@ fn run_bm25_benchmark(codebase: &[DocTokens]) -> Bm25BenchmarkResult {
     )
 }
 
-fn min(a: usize, b: usize) -> usize {
-    if a < b {
-        a
-    } else {
-        b
-    }
-}
-
 fn main() {
     println!("===========================================================");
     println!("  VibeIndex vs BM25 Benchmark — Codebase Edition");
@@ -1417,7 +1411,7 @@ fn main() {
         let marker = if vi_ok != bm25_ok { " <-- DIFF" } else { "" };
         println!(
             "  {:<32} {:>6} {:>18}  {:>6} {:>18}{}",
-            &query[..min(query.len(), 32)],
+            &query[..query.len().min(32)],
             if vi_ok { "HIT" } else { "MISS" },
             if vi_ok { &vi_file_short } else { "------" },
             if bm25_ok { "HIT" } else { "MISS" },

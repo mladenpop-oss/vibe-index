@@ -2,14 +2,27 @@ use roaring::RoaringBitmap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Result of a search operation, containing the match position and metadata.
+///
+/// When searching with file-aware indexing (`add_file`), this includes
+/// `file_path`, `line_number`, and `line_content` for precise location.
+/// The `highlighted_snippet` wraps matched tokens in `**bold**` markers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MatchResult {
+    /// Position in the token sequence where the match was found.
     pub position: usize,
+    /// Human-readable description of what was matched.
     pub context: String,
+    /// Confidence score: higher for exact phrase matches, lower for fuzzy.
+    /// Includes file size weighting bonus for larger files.
     pub confidence: f64,
+    /// File path if indexed with `add_file` (None for raw token indexing).
     pub file_path: Option<String>,
+    /// Line number within the file (1-indexed).
     pub line_number: Option<usize>,
+    /// Full line content containing the match.
     pub line_content: Option<String>,
+    /// Line content with matched tokens wrapped in `**bold**` markers.
     pub highlighted_snippet: Option<String>,
 }
 
@@ -109,12 +122,49 @@ impl TokenLexicon {
     }
 }
 
+/// Core indexing engine for exact phrase matching at sub-microsecond latency.
+///
+/// VibeIndex builds a token lexicon (u32 ID <-> String mapping) and stores
+/// token positions as Roaring Bitmaps for compact storage and fast set operations.
+///
+/// # Phrase Search
+///
+/// Uses an anchor-and-offset algorithm: picks the smallest bitmap as anchor,
+/// then checks sibling offsets. Complexity: O(min_cardinality x phrase_length).
+///
+/// # Fuzzy Search
+///
+/// Uses bigram prefiltering to reduce Levenshtein computations by ~97%.
+/// Only tokens sharing at least one bigram with the query are considered.
+///
+/// # File-Aware Indexing
+///
+/// Use `add_file()` instead of `add_token()` to track file paths, line numbers,
+/// and line content. Results include precise location metadata.
+///
+/// # Incremental Updates
+///
+/// Use `update_file()` to update changed files without full re-indexing.
+/// Uses FNV-1a content hashing for change detection.
+///
+/// # Example
+///
+/// ```
+/// use vibe_index::VibeIndex;
+///
+/// let mut index = VibeIndex::new();
+/// index.add_file("src/main.rs", "fn main() { println!(\"hello\"); }");
+/// let results = index.phrase_search(&["fn".into(), "main".into()]);
+/// ```
 pub struct VibeIndex {
+    /// Bidirectional token lexicon for u32 ID <-> String mapping.
     pub lexicon: TokenLexicon,
+    /// Maps each token ID to a Roaring Bitmap of positions where it occurs.
     pub token_positions: HashMap<u32, RoaringBitmap>,
+    /// The full token sequence in insertion order.
     pub token_sequence: Vec<u32>,
     position: usize,
-    /// File tracking: maps token positions to file metadata
+    /// File tracking: maps token positions to file metadata.
     pub file_index: crate::file_index::FileIndex,
 }
 
@@ -166,6 +216,14 @@ impl VibeIndex {
         (token_count as f64).log10() * 0.01
     }
 
+    /// Create a new empty VibeIndex.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use vibe_index::VibeIndex;
+    /// let index = VibeIndex::new();
+    /// ```
     pub fn new() -> Self {
         Self {
             lexicon: TokenLexicon::new(),
@@ -204,7 +262,24 @@ impl VibeIndex {
         );
     }
 
-    /// Update a file if its content has changed (returns true if updated)
+    /// Update a file if its content has changed, using FNV-1a content hashing.
+    ///
+    /// Returns `true` if the file was updated, `false` if content is unchanged.
+    /// Only modified files are re-indexed — no full re-index needed.
+    ///
+    /// # Arguments
+    /// * `path` — file path (must match the path used in `add_file()`)
+    /// * `content` — new file content
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use vibe_index::VibeIndex;
+    /// let mut index = VibeIndex::new();
+    /// index.add_file("src/main.rs", "fn main() {}");
+    /// assert!(index.update_file("src/main.rs", "fn main() { let x = 1; }"));
+    /// assert!(!index.update_file("src/main.rs", "fn main() { let x = 1; }")); // no change
+    /// ```
     pub fn update_file(&mut self, path: &str, content: &str) -> bool {
         // Find existing file by path
         let file_idx = match self.file_index.files.iter().position(|f| f.path == path) {
@@ -292,7 +367,19 @@ impl VibeIndex {
         true
     }
 
-    /// Add a single token (legacy method, no file tracking)
+    /// Add a single token to the index (legacy method, no file tracking).
+    ///
+    /// Prefer `add_file()` for source code indexing — it preserves file
+    /// boundaries, line numbers, and enables precise location lookup.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use vibe_index::VibeIndex;
+    /// let mut index = VibeIndex::new();
+    /// index.add_token("fn");
+    /// index.add_token("main");
+    /// ```
     pub fn add_token(&mut self, token: &str) {
         let id = self.lexicon.get_or_insert(token);
         self.token_positions
@@ -309,6 +396,27 @@ impl VibeIndex {
         self.lexicon.get_id(token)
     }
 
+    /// Exact phrase search using anchor-and-offset algorithm.
+    ///
+    /// Resolves each query token to its lexicon ID, gets the Roaring Bitmap
+    /// for each, picks the smallest as anchor, then checks sibling offsets.
+    ///
+    /// # Arguments
+    /// * `query` — slice of token strings forming the phrase to search for
+    ///
+    /// # Returns
+    /// Vector of `MatchResult` sorted by position. Each result includes
+    /// file metadata if indexed with `add_file()`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use vibe_index::VibeIndex;
+    /// let mut index = VibeIndex::new();
+    /// index.add_file("src/main.rs", "fn main() { let x = 42; }");
+    /// let results = index.phrase_search(&["fn".into(), "main".into()]);
+    /// assert!(!results.is_empty());
+    /// ```
     pub fn phrase_search(&self, query: &[String]) -> Vec<MatchResult> {
         if query.is_empty() {
             return Vec::new();
@@ -405,9 +513,6 @@ impl VibeIndex {
                             .map(|f| f.token_count)
                             .unwrap_or(0);
                         confidence = 1.0 + Self::file_size_weight(file_token_count);
-                        if confidence > 1.0 {
-                            confidence = 1.0;
-                        }
                     }
                 }
                 MatchResult {
@@ -423,6 +528,24 @@ impl VibeIndex {
             .collect()
     }
 
+    /// Fuzzy search with typo tolerance using bigram prefiltering + Levenshtein distance.
+    ///
+    /// Only tokens sharing at least one bigram with the query are considered,
+    /// reducing Levenshtein computations by ~97% compared to full scan.
+    ///
+    /// # Arguments
+    /// * `query` — the string to search for (may contain typos)
+    /// * `max_distance` — maximum Levenshtein distance allowed (1 = 1-char typo)
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use vibe_index::VibeIndex;
+    /// let mut index = VibeIndex::new();
+    /// index.add_token("process");
+    /// let results = index.fuzzy_search("proces", 1);
+    /// assert!(!results.is_empty());
+    /// ```
     pub fn fuzzy_search(&self, query: &str, max_distance: usize) -> Vec<MatchResult> {
         let mut results = Vec::new();
         let id_to_token = &self.lexicon.id_to_token;
@@ -483,11 +606,8 @@ impl VibeIndex {
                                 .get(file_idx)
                                 .map(|f| f.token_count)
                                 .unwrap_or(0);
-                            let mut confidence =
+                            let confidence =
                                 base_confidence + Self::file_size_weight(file_token_count);
-                            if confidence > 1.0 {
-                                confidence = 1.0;
-                            }
                             results.push(MatchResult {
                                 position: pos_usize,
                                 context: format!(
@@ -525,10 +645,29 @@ impl VibeIndex {
     /// Unified search: natural language query → phrase search + fuzzy search → merged results
     ///
     /// This is the high-level API. It:
-    /// 1. Parses the query into search phrases using query_parser
-    /// 2. Runs phrase_search on each phrase
-    /// 3. Runs fuzzy_search for typo tolerance
-    /// 4. Merges all results, deduplicates by position, sorts by confidence
+    /// Unified natural language search: parses query, runs phrase + fuzzy search,
+    /// merges results, deduplicates by position, and sorts by confidence.
+    ///
+    /// This is the main entry point for end-user search. It handles:
+    /// 1. Parsing natural language into search phrases (camelCase splitting,
+    ///    stop word removal, identifier boundary detection)
+    /// 2. Running exact phrase search on each parsed phrase
+    /// 3. Running fuzzy search for typo tolerance
+    /// 4. Merging all results, deduplicating by position, sorting by confidence
+    /// 4. Merging all results, deduplicating by position, sorting by confidence
+    ///
+    /// # Arguments
+    /// * `query` — natural language query string
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use vibe_index::VibeIndex;
+    /// let mut index = VibeIndex::new();
+    /// index.add_file("src/auth.rs", "fn authenticate(user: &str) -> Result<(), Error> { Ok(()) }");
+    /// let results = index.search("where is the authenticate function");
+    /// assert!(!results.is_empty());
+    /// ```
     pub fn search(&self, query: &str) -> Vec<MatchResult> {
         let mut all_results: Vec<MatchResult> = Vec::new();
         let mut seen_positions: std::collections::HashSet<usize> = std::collections::HashSet::new();
@@ -582,11 +721,31 @@ impl VibeIndex {
         all_results
     }
 
+    /// Total number of tokens indexed across all files.
     pub fn total_positions(&self) -> usize {
         self.position
     }
+
+    /// Number of unique tokens in the lexicon.
     pub fn unique_tokens(&self) -> usize {
         self.token_positions.len()
+    }
+
+    /// Estimate memory usage in bytes (token sequence + bitmap data).
+    pub fn estimated_memory_bytes(&self) -> usize {
+        let lexicon_bytes: usize = self
+            .lexicon
+            .id_to_token
+            .iter()
+            .map(|s| s.capacity() + 24)
+            .sum();
+        let token_seq_bytes = self.token_sequence.len() * std::mem::size_of::<u32>();
+        let bitmap_bytes: usize = self
+            .token_positions
+            .values()
+            .map(|bitmap| std::mem::size_of::<u32>() + 24 + bitmap.serialized_size())
+            .sum();
+        lexicon_bytes + token_seq_bytes + bitmap_bytes
     }
 
     /// Construct a VibeIndex from persisted data (with pre-built bitmaps and lexicon)
@@ -635,22 +794,6 @@ impl VibeIndex {
             file_index: crate::file_index::FileIndex::new(),
         }
     }
-
-    pub fn estimated_memory_bytes(&self) -> usize {
-        let lexicon_bytes: usize = self
-            .lexicon
-            .id_to_token
-            .iter()
-            .map(|s| s.capacity() + 24)
-            .sum();
-        let token_seq_bytes = self.token_sequence.len() * std::mem::size_of::<u32>();
-        let bitmap_bytes: usize = self
-            .token_positions
-            .values()
-            .map(|bitmap| std::mem::size_of::<u32>() + 24 + bitmap.serialized_size())
-            .sum();
-        lexicon_bytes + token_seq_bytes + bitmap_bytes
-    }
 }
 
 #[allow(clippy::needless_range_loop)]
@@ -679,30 +822,25 @@ fn levenshtein(a: &str, b: &str) -> usize {
             } else {
                 1
             };
-            matrix[i][j] = min(
+            matrix[i][j] = usize::min(
                 matrix[i - 1][j] + 1,
-                min(matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost),
+                usize::min(matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost),
             );
         }
     }
     matrix[la][lb]
 }
 
-fn min(a: usize, b: usize) -> usize {
-    if a < b {
-        a
-    } else {
-        b
-    }
-}
-
 pub mod bm25;
 pub mod file_index;
 pub mod hot_cold;
 pub mod hybrid_search;
+#[cfg(feature = "llama-cpp")]
 pub mod llama_cpp;
 pub mod persistent_storage;
+pub mod prompt_injector;
 pub mod query_parser;
+#[cfg(feature = "vllm")]
 pub mod vllm;
 
 #[cfg(test)]

@@ -26,42 +26,41 @@ Measured on 50K synthetic tokens, release build, single core:
 
 | Operation | Latency |
 |-----------|---------|
-| Index 50K tokens | 1.84 ms |
-| Exact phrase (1 match) | **111 ns** |
-| Exact phrase (~100 matches) | 188 µs |
-| Phrase not found (early exit) | 80 ns |
-| Fuzzy 1-char typo | **4.47 µs** |
-| Fuzzy 2-char typo | 66.8 µs |
-| Fuzzy no match (early exit) | 116 ns |
-| Unified NL search | 120 µs |
-| Unified + typo tolerance | 35.8 µs |
-| Hybrid BM25 + Vibe | 6.9 µs |
-
-Real codebase (vibe-index itself, 15.8K tokens, 0.14 MB memory):
-
-| Operation | Latency |
-|-----------|---------|
-| Index 10 .rs files | 14.2 ms |
-| `pub fn new` (3-word phrase) | 83.9 µs |
-| `impl Default for` (exact) | 7.5 µs |
-| "phrase search function" (NL) | 714 µs |
-| "pharse searsh" (fuzzy, 2 typos) | 490 µs |
+| Index 50K tokens | **1.83 ms** |
+| Index 10K tokens | 425 µs |
+| Exact phrase (1 match) | **112 ns** |
+| Exact phrase (~100 matches) | 198 µs |
+| Phrase not found (early exit) | **82 ns** |
+| Fuzzy 1-char typo | **4.64 µs** |
+| Fuzzy 2-char typo | 67 µs |
+| Fuzzy no match (early exit) | 127 ns |
+| Unified NL search | 121 µs |
+| Unified + typo tolerance | 36 µs |
+| Hybrid BM25 + Vibe | 7–10 µs |
 
 File-aware search with metadata (file_path, line_number, line_content):
 
 | Operation | Latency |
 |-----------|---------|
-| Phrase search (10 files) | 21.5 µs |
-| Phrase search (100 files) | 239 µs |
-| Phrase search (500 files) | 1.12 ms |
-| Add file (10 files) | 677 µs |
-| Add file (500 files) | 34.5 ms |
-| Persist + reload (100 files) | 128 µs |
+| Phrase search (10 files) | 25 µs |
+| Phrase search (50 files) | 127 µs |
+| Phrase search (100 files) | 250 µs |
+| Phrase search (500 files) | 1.15 ms |
+| Add file (10 files) | 698 µs |
+| Add file (50 files) | 3.4 ms |
+| Add file (100 files) | 7 ms |
+| Add file (500 files) | 36 ms |
+| Persist + reload (10 files) | 4 ms |
+| Persist + reload (100 files) | 150 µs |
 
 ## Why
 Basically it's a superfast exact phrase search for code. You index your files, then it finds "fn authenticate" at exactly line 42 in 111 nanoseconds.
 
 The whole point is regular retrievers (embeddings, BM25) find the right chunk but can't tell you where inside that chunk the answer is. So you waste tokens stuffing the whole chunk into the LLM prompt. Vibe Index finds the exact line, so you only inject what you actually need. 
+
+Vibe Index is a sub-microsecond exact phrase search engine designed for LLM context retrieval. Index your source code, then find `"fn authenticate"` at exactly line 42 in 112 nanoseconds.
+
+Regular retrievers (embeddings, BM25) find the right chunk but can't tell you where inside that chunk the answer lives. This forces you to inject the entire chunk (1K–4K tokens) into the LLM prompt, wasting tokens, KV cache, and inference time. Vibe Index finds the exact line so you only inject ±50 tokens around the match.
 
 Every LLM query pays for context it doesn't need. A 7B model processes ~1.5KB per token in KV cache. Injecting 4K tokens of context instead of 300 relevant tokens wastes 5.5GB of VRAM and adds 30+ seconds of inference time.
 
@@ -110,6 +109,24 @@ let results = index.search("where is the authenticate function");
 use vibe_index::hybrid_search::HybridSearcher;
 let hybrid = HybridSearcher::new(top_k: 3);
 let results = hybrid.search("how does authentication work");
+```
+
+### Feature Flags
+
+The `llama_cpp` and `vllm` modules are optional. Enable them via Cargo features:
+
+```bash
+# Core only (no extra dependencies)
+cargo add vibe-index
+
+# With llama.cpp integration
+cargo add vibe-index --features llama-cpp
+
+# With vLLM integration
+cargo add vibe-index --features vllm
+
+# All features
+cargo add vibe-index --features all
 ```
 
 ## How It Works
@@ -167,12 +184,29 @@ Vibe Index is 100-1000x faster than embedding search and provides exact position
 | `query_parser` | NL → search phrases: splits camelCase, snake_case, `::` paths, strips stop words |
 | `bm25` | Lightweight BM25 scorer for document-level candidate ranking |
 | `hybrid_search` | BM25 candidates → Vibe Index exact position validation |
-| `hot_cold` | In-memory hot buffer + disk-backed cold segments |
+| `hot_cold` | In-memory hot buffer + disk-backed cold segments with configurable context window |
 | `persistent_storage` | Gzip-compressed token sequences + serialized bitmaps + file metadata |
 | `prompt_injector` | Context window builder: search → filter → extract windows → build prompt |
-| `llama_cpp` | Full pipeline: index → search → build prompt → llama.cpp completion |
-| `vllm` | Hybrid search + context budget + output validation + confidence feedback |
+| `llama_cpp` | Full pipeline: index → search → build prompt → llama.cpp completion (optional) |
+| `vllm` | Hybrid search + context budget + output validation + confidence feedback (optional) |
 | `mcp_server` | MCP (Model Context Protocol) server for LLM tool integration |
+
+## Configurable Context Windows
+
+Both the hot/cold index and prompt injector support configurable context window sizes:
+
+```rust
+// Hot/Cold index with custom context window
+let mut hc = HotColdIndex::new("./data", 10000);
+hc.context_window_size = 20; // ±20 tokens around matches
+
+// Prompt injector with custom context window
+let injector = PromptInjector::with_context_window(
+    max_context_tokens: 500,
+    min_confidence: 0.5,
+    window_size: 10, // ±10 tokens around matches
+);
+```
 
 ## MCP Server
 
@@ -274,6 +308,15 @@ This walks all `.rs` files in the directory, indexes them with file metadata, an
 
 ## Recent Updates
 
+### v0.1.3 — Feature Flags, Configurable Windows & Documentation
+
+- **Feature flags** — `llama-cpp` and `vllm` modules are now optional. Use `--features all` to enable all LLM integrations, or select individual features. Core indexing works with zero extra dependencies.
+- **Configurable context window** — `PromptInjector::with_context_window()` and `HotColdIndex.context_window_size` allow tuning the ±N token context around matches.
+- **Full rustdoc coverage** — all public types and methods now have comprehensive documentation with runnable examples (7 doc tests).
+- **New tests** — 6 tests for `prompt_injector`, 8 tests for `vllm` module. Total: 73 unit tests + 7 doc tests.
+- **Confidence scoring fixed** — file size weighting now works correctly (removed erroneous 1.0 cap).
+- **Cleaned up** — removed hardcoded Windows paths from benchmarks, replaced custom `min()` with `usize::min`, removed dead `.bak` files.
+
 ### v0.1.2 — Incremental Indexing & Search Enhancements
 
 - **Incremental file indexing** — `update_file()` updates changed files without full re-index. Uses FNV-1a content hashing for change detection.
@@ -288,9 +331,35 @@ This walks all `.rs` files in the directory, indexes them with file metadata, an
 - **Relevance ranking** — search results sorted by confidence (highest first), grouped by file.
 - **`get_file_content` MCP tool** — retrieve full content of indexed files by path.
 
+## Testing
+
+The project maintains comprehensive test coverage with 73 unit tests and 7 doc tests:
+
+- **Core indexing**: add_token, add_file, total_positions, unique_tokens
+- **Phrase search**: exact matches, not found, multiple matches, with file info
+- **Fuzzy search**: typo tolerance, bigram prefiltering
+- **Unified search**: phrase match, fuzzy match, combined, empty query
+- **File tracking**: file segments, line offsets, token-line mapping, binary search, content hashing
+- **Incremental updates**: no-change detection, content change, new file, range shifting
+- **Persistence**: save/load, batch import, legacy format migration, file metadata
+- **Hot/Cold**: flushes, multiple flushes, stats, cross-layer search, persistence
+- **Query parser**: camelCase, snake_case, kebab-case, paths, generics, stop words
+- **Prompt injector**: basic search, confidence filtering, context windows, empty context
+- **vLLM integration**: context validation, output validation, confidence feedback, stats
+
+Run tests:
+```bash
+cargo test
+```
+
+Run benchmarks:
+```bash
+cargo bench
+```
+
 ## Author
 
-**Mladen Popović** 
+**Mladen Popović**
 
 ## Limitations
 

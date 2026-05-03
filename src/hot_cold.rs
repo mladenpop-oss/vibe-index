@@ -234,6 +234,8 @@ pub struct HotColdIndex {
     pub max_hot_tokens: usize,
     /// Total tokens processed (including those flushed to cold)
     pub total_tokens: u32,
+    /// Number of tokens to include on each side of a match for context
+    pub context_window_size: usize,
 }
 
 impl HotColdIndex {
@@ -253,6 +255,7 @@ impl HotColdIndex {
             cold,
             max_hot_tokens,
             total_tokens: base_offset,
+            context_window_size: 15,
         }
     }
 
@@ -445,7 +448,7 @@ impl HotColdIndex {
 
         if global_pos >= hot_start && global_pos < hot_end {
             let local_idx = global_pos - hot_start;
-            let start = local_idx.saturating_sub(15);
+            let start = local_idx.saturating_sub(self.context_window_size);
             let end = (local_idx + query_len).min(self.hot.tokens.len());
             if start < end {
                 self.hot.tokens[start..end].join(" ")
@@ -455,7 +458,7 @@ impl HotColdIndex {
         } else {
             // Cold layer - return segment info
             self.cold
-                .get_context(global_pos, query_len, 15)
+                .get_context(global_pos, query_len, self.context_window_size)
                 .unwrap_or_else(|| "[Cold] Context not available".to_string())
         }
     }

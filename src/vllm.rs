@@ -429,3 +429,101 @@ pub mod prompts {
     pub const FIND_BUGS: &str = "Find all bugs and potential issues in the following code.";
     pub const REFACTORING: &str = "Refactor the following code to be more readable and efficient.";
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vllm_integration_basic() {
+        let mut integration = VllmIntegration::new("http://localhost:8000".to_string(), 1000);
+        integration.add_token("fn");
+        integration.add_token("main");
+        integration.add_token("(");
+        integration.add_token(")");
+        integration.add_token("{");
+        integration.add_token("}");
+
+        let context = vec![
+            "fn".into(),
+            "main".into(),
+            "(".into(),
+            ")".into(),
+            "{".into(),
+            "let".into(),
+            "x".into(),
+            "= 42;".into(),
+            "}".into(),
+        ];
+
+        integration.index_tokens(&context);
+        assert_eq!(integration.vibe.total_positions(), 6);
+    }
+
+    #[test]
+    fn test_context_validation() {
+        let validation = ContextValidation {
+            token_boundary_safe: true,
+            balanced_braces: true,
+            no_truncated_tokens: true,
+            issues: vec![],
+        };
+        assert!(validation.token_boundary_safe);
+        assert!(validation.balanced_braces);
+        assert!(validation.no_truncated_tokens);
+        assert!(validation.issues.is_empty());
+    }
+
+    #[test]
+    fn test_output_validation_valid() {
+        let integration = VllmIntegration::new("http://localhost:8000".to_string(), 1000);
+        let result = integration.validate_output("fn main() { let x = 42; }");
+        assert!(result.syntax_valid);
+    }
+
+    #[test]
+    fn test_output_validation_invalid() {
+        let integration = VllmIntegration::new("http://localhost:8000".to_string(), 1000);
+        let result = integration.validate_output("fn main( { broken code");
+        assert!(!result.syntax_valid);
+    }
+
+    #[test]
+    fn test_confidence_feedback() {
+        let mut integration = VllmIntegration::new("http://localhost:8000".to_string(), 1000);
+        integration.update_confidence_feedback("test query", true);
+        let confidence = integration.get_query_confidence("test query");
+        assert!(confidence.is_some());
+        assert!(confidence.unwrap() > 0.0);
+    }
+
+    #[test]
+    fn test_confidence_feedback_negative() {
+        let mut integration = VllmIntegration::new("http://localhost:8000".to_string(), 1000);
+        integration.update_confidence_feedback("test query", true);
+        integration.update_confidence_feedback("test query", false);
+        let confidence = integration.get_query_confidence("test query");
+        assert!(confidence.is_some());
+        let c = confidence.unwrap();
+        assert!(c < 1.0);
+    }
+
+    #[test]
+    fn test_context_stats() {
+        let integration = VllmIntegration::new("http://localhost:8000".to_string(), 1000);
+        let stats = integration.get_context_stats(1000, 100);
+        assert_eq!(stats.original_tokens, 1000);
+        assert_eq!(stats.filtered_tokens, 100);
+        assert_eq!(stats.saved_tokens, 900);
+        assert!((stats.savings_percent - 90.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_prompts_module() {
+        assert!(!prompts::CODE_REVIEW.is_empty());
+        assert!(!prompts::GENERATE_TESTS.is_empty());
+        assert!(!prompts::EXPLAIN_CODE.is_empty());
+        assert!(!prompts::FIND_BUGS.is_empty());
+        assert!(!prompts::REFACTORING.is_empty());
+    }
+}

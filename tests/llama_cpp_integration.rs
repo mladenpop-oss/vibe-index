@@ -1,5 +1,7 @@
+#[cfg(feature = "llama-cpp")]
 use vibe_index::llama_cpp::LlamaCppIntegration;
 
+#[cfg(feature = "llama-cpp")]
 #[tokio::test]
 async fn test_llama_cpp_integration() {
     let server_url = "http://127.0.0.1:8080";
@@ -65,6 +67,7 @@ async fn test_llama_cpp_integration() {
     }
 }
 
+#[cfg(feature = "llama-cpp")]
 #[tokio::test]
 async fn test_llama_cpp_full_pipeline() {
     let server_url = "http://127.0.0.1:8080";
