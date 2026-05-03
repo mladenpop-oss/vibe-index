@@ -141,6 +141,64 @@ Vibe Index is 100-1000x faster than embedding search and provides exact position
 | `prompt_injector` | Context window builder: search → filter → extract windows → build prompt |
 | `llama_cpp` | Full pipeline: index → search → build prompt → llama.cpp completion |
 | `vllm` | Hybrid search + context budget + output validation + confidence feedback |
+| `mcp_server` | MCP (Model Context Protocol) server for LLM tool integration |
+
+## MCP Server
+
+Expose Vibe Index as an MCP tool for LLM applications (LM Studio, Ollama, Claude Desktop, etc.).
+
+### Build
+
+```bash
+cargo build --bin vibe-mcp --release
+```
+
+### Run
+
+```bash
+.\target\release\vibe-mcp.exe
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `index_text` | Index text content into the Vibe Index |
+| `phrase_search` | Exact phrase search with positional results |
+| `fuzzy_search` | Typo-tolerant search (Levenshtein distance) |
+| `search` | Unified natural language search |
+| `get_stats` | Index statistics (positions, tokens, memory) |
+| `clear_index` | Reset the index to empty state |
+
+### Configuration
+
+Add to your MCP client config (LM Studio, Claude Desktop, etc.):
+
+```json
+{
+  "mcpServers": {
+    "vibe-index": {
+      "command": ".\\target\\release\\vibe-mcp.exe"
+    }
+  }
+}
+```
+
+### Example Usage
+
+```json
+// Index text
+{"name": "index_text", "arguments": {"text": "fn main() { let x = 42; }"}}
+
+// Search
+{"name": "search", "arguments": {"query": "where is the main function"}}
+
+// Phrase search
+{"name": "phrase_search", "arguments": {"phrase": "fn main"}}
+
+// Fuzzy search (1 typo tolerance)
+{"name": "fuzzy_search", "arguments": {"query": "mian", "max_distance": 1}}
+```
 
 ## Limitations
 
