@@ -162,21 +162,7 @@ Vibe Index is 100-1000x faster than embedding search and provides exact position
 
 Expose Vibe Index as an MCP tool for LLM applications (LM Studio, Ollama, Claude Desktop, OpenCode, etc.).
 
-### Rust MCP Server (Production)
-
-High-performance Rust implementation using the `modelcontextprotocol-server` crate.
-
-**Build:**
-```bash
-cargo build --bin vibe-mcp --release
-```
-
-**Run:**
-```bash
-.\target\release\vibe-mcp.exe
-```
-
-### Python MCP Server (Development/OpenCode)
+### Python MCP Server
 
 Python implementation using the official `mcp` package. Ideal for OpenCode Desktop integration.
 
