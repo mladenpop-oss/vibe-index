@@ -1,7 +1,8 @@
 [package]
 name = "vibe-index"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
+rust-version = "1.70"
 description = "Sub-microsecond exact phrase matching for LLM context retrieval using Roaring bitmaps"
 license = "MIT"
 repository = "https://github.com/mladenpop-oss/vibe-index"
