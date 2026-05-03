@@ -20,16 +20,16 @@ async fn main() -> anyhow::Result<()> {
 
     let mcp_server = builder.build()?;
 
-    println!("Vibe Index MCP Server started");
-    println!("Tools available:");
+    eprintln!("Vibe Index MCP Server started");
+    eprintln!("Tools available:");
     for tool in vibe_server.tools() {
-        println!(
+        eprintln!(
             "  - {}: {}",
             tool.name,
             tool.description.as_deref().unwrap_or("")
         );
     }
-    println!();
+    eprintln!();
 
     mcp_server.run().await?;
     Ok(())

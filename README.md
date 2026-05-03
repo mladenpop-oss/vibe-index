@@ -145,18 +145,34 @@ Vibe Index is 100-1000x faster than embedding search and provides exact position
 
 ## MCP Server
 
-Expose Vibe Index as an MCP tool for LLM applications (LM Studio, Ollama, Claude Desktop, etc.).
+Expose Vibe Index as an MCP tool for LLM applications (LM Studio, Ollama, Claude Desktop, OpenCode, etc.).
 
-### Build
+### Rust MCP Server (Production)
 
+High-performance Rust implementation using the `modelcontextprotocol-server` crate.
+
+**Build:**
 ```bash
 cargo build --bin vibe-mcp --release
 ```
 
-### Run
-
+**Run:**
 ```bash
 .\target\release\vibe-mcp.exe
+```
+
+### Python MCP Server (Development/OpenCode)
+
+Python implementation using the official `mcp` package. Ideal for OpenCode Desktop integration.
+
+**Install:**
+```bash
+pip install mcp
+```
+
+**Run:**
+```bash
+python mcp_server.py
 ```
 
 ### Available Tools
@@ -170,15 +186,31 @@ cargo build --bin vibe-mcp --release
 | `get_stats` | Index statistics (positions, tokens, memory) |
 | `clear_index` | Reset the index to empty state |
 
-### Configuration
+### OpenCode Desktop Configuration
 
-Add to your MCP client config (LM Studio, Claude Desktop, etc.):
+Add to `~/.config/opencode/opencode.jsonc` or `%APPDATA%\opencode\opencode.jsonc`:
+
+```json
+{
+  "mcp": {
+    "vibe-index": {
+      "type": "local",
+      "command": ["python", "path/to/mcp_server.py"],
+      "enabled": true,
+      "timeout": 10000
+    }
+  }
+}
+```
+
+### LM Studio / Claude Desktop Configuration
 
 ```json
 {
   "mcpServers": {
     "vibe-index": {
-      "command": ".\\target\\release\\vibe-mcp.exe"
+      "command": "python",
+      "args": ["path/to/mcp_server.py"]
     }
   }
 }
