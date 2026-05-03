@@ -548,10 +548,7 @@ mod tests {
                 "src/auth.rs",
                 "fn authenticate(user: &str) -> Result<(), Error> {\n    Ok(())\n}\n",
             );
-            storage.add_file(
-                "src/main.rs",
-                "fn main() {\n    let x = 42;\n}\n",
-            );
+            storage.add_file("src/main.rs", "fn main() {\n    let x = 42;\n}\n");
             storage.save().unwrap();
         }
 
@@ -569,7 +566,11 @@ mod tests {
         assert!(results[0].line_number.is_some());
         assert_eq!(results[0].line_number.unwrap(), 1);
         assert!(results[0].line_content.is_some());
-        assert!(results[0].line_content.as_deref().unwrap().contains("authenticate"));
+        assert!(results[0]
+            .line_content
+            .as_deref()
+            .unwrap()
+            .contains("authenticate"));
     }
 
     #[test]

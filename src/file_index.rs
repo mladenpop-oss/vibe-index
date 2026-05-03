@@ -132,13 +132,17 @@ impl Default for FileIndex {
 
 impl FileIndex {
     pub fn new() -> Self {
-        Self {
-            files: Vec::new(),
-        }
+        Self { files: Vec::new() }
     }
 
     /// Add a file to the index
-    pub fn add_file(&mut self, path: String, content: String, token_start: usize, token_end: usize) {
+    pub fn add_file(
+        &mut self,
+        path: String,
+        content: String,
+        token_start: usize,
+        token_end: usize,
+    ) {
         let file = FileSegment::new(path, content, token_start, token_end);
         self.files.push(file);
     }
@@ -184,7 +188,8 @@ impl FileIndex {
 
     /// Get all files that contain tokens matching a position range
     pub fn get_files_in_range(&self, start: usize, end: usize) -> Vec<&FileSegment> {
-        self.files.iter()
+        self.files
+            .iter()
             .filter(|f| f.token_start < end && f.token_end > start)
             .collect()
     }
@@ -194,7 +199,9 @@ impl FileIndex {
         FileIndexStats {
             total_files: self.files.len(),
             total_tokens: self.files.iter().map(|f| f.token_count).sum(),
-            files: self.files.iter()
+            files: self
+                .files
+                .iter()
                 .map(|f| (f.path.clone(), f.token_count))
                 .collect(),
         }
@@ -237,7 +244,8 @@ mod tests {
     #[test]
     fn test_token_line_map_accuracy() {
         let content = "fn main() {\n    let x = 42;\n}\n";
-        let tokens: Vec<&str> = content.split(|c: char| !c.is_alphanumeric())
+        let tokens: Vec<&str> = content
+            .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty())
             .collect();
         // Tokens (split-based): fn, main, let, x, 42 = 5 tokens
@@ -256,16 +264,22 @@ mod tests {
     #[test]
     fn test_token_to_line_exact() {
         let content = "fn authenticate(user: &str) -> Result<(), Error> {\n    Ok(())\n}\n";
-        let token_count: usize = content.split(|c: char| !c.is_alphanumeric())
+        let token_count: usize = content
+            .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty())
             .count();
-        let segment = FileSegment::new("src/auth.rs".to_string(), content.to_string(), 0, token_count);
-        
+        let segment = FileSegment::new(
+            "src/auth.rs".to_string(),
+            content.to_string(),
+            0,
+            token_count,
+        );
+
         // "fn" is token 0, should be on line 1
         let (line, lc) = segment.token_to_line(0).unwrap();
         assert_eq!(line, 1);
         assert!(lc.contains("authenticate"));
-        
+
         // "Ok" is the last token, should be on line 2
         let (line, lc) = segment.token_to_line(token_count - 1).unwrap();
         assert_eq!(line, 2);
@@ -275,7 +289,8 @@ mod tests {
     #[test]
     fn test_get_line_content() {
         let content = "fn main() {\n    println!(\"hello\");\n}\n";
-        let token_count: usize = content.split(|c: char| !c.is_alphanumeric())
+        let token_count: usize = content
+            .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty())
             .count();
         let segment = FileSegment::new("test.rs".to_string(), content.to_string(), 0, token_count);
@@ -287,7 +302,8 @@ mod tests {
     #[test]
     fn test_token_to_line() {
         let content = "fn main() {\n    let x = 42;\n}\n";
-        let token_count: usize = content.split(|c: char| !c.is_alphanumeric())
+        let token_count: usize = content
+            .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty())
             .count();
         let segment = FileSegment::new("test.rs".to_string(), content.to_string(), 0, token_count);
@@ -303,10 +319,21 @@ mod tests {
     #[test]
     fn test_file_index_stats() {
         let mut index = FileIndex::new();
-        let t1 = "fn main() {}".split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count();
-        let t2 = "fn main() {}".split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count();
+        let t1 = "fn main() {}"
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .count();
+        let t2 = "fn main() {}"
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .count();
         index.add_file("src/lib.rs".to_string(), "fn main() {}".to_string(), 0, t1);
-        index.add_file("src/main.rs".to_string(), "fn main() {}".to_string(), t1, t1 + t2);
+        index.add_file(
+            "src/main.rs".to_string(),
+            "fn main() {}".to_string(),
+            t1,
+            t1 + t2,
+        );
         let stats = index.stats();
         assert_eq!(stats.total_files, 2);
         assert_eq!(stats.total_tokens, t1 + t2);
@@ -315,11 +342,17 @@ mod tests {
     #[test]
     fn test_get_file_path() {
         let mut index = FileIndex::new();
-        let t1 = "fn a() {}".split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count();
-        let t2 = "fn b() {}".split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count();
+        let t1 = "fn a() {}"
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .count();
+        let t2 = "fn b() {}"
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .count();
         index.add_file("src/a.rs".to_string(), "fn a() {}".to_string(), 0, t1);
         index.add_file("src/b.rs".to_string(), "fn b() {}".to_string(), t1, t1 + t2);
-        
+
         assert_eq!(index.get_file_path(0), Some("src/a.rs"));
         assert_eq!(index.get_file_path(t1), Some("src/b.rs"));
         assert_eq!(index.get_file_path(999), None);
@@ -329,11 +362,12 @@ mod tests {
     fn test_get_file_info() {
         let mut index = FileIndex::new();
         let content = "fn hello() {}\nfn world() {}\n";
-        let token_count = content.split(|c: char| !c.is_alphanumeric())
+        let token_count = content
+            .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty())
             .count();
         index.add_file("test.rs".to_string(), content.to_string(), 0, token_count);
-        
+
         let info = index.get_file_info(0);
         assert!(info.is_some());
         let (idx, path, line_content) = info.unwrap();
@@ -346,12 +380,13 @@ mod tests {
     fn test_binary_search_single_file() {
         let mut index = FileIndex::new();
         let content = "fn main() {\n    println!(\"hello\");\n}\n";
-        let token_count = content.split(|c: char| !c.is_alphanumeric())
+        let token_count = content
+            .split(|c: char| !c.is_alphanumeric())
             .filter(|s| !s.is_empty())
             .count();
         index.add_file("test.rs".to_string(), content.to_string(), 0, token_count);
         index.build_lookup_index();
-        
+
         assert_eq!(index.get_file_path(0), Some("test.rs"));
         assert_eq!(index.get_file_path(token_count / 2), Some("test.rs"));
         assert_eq!(index.get_file_path(token_count - 1), Some("test.rs"));
@@ -362,15 +397,29 @@ mod tests {
     #[test]
     fn test_binary_search_multiple_files() {
         let mut index = FileIndex::new();
-        let t1 = "fn a() {}".split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count();
-        let t2 = "fn b() {}".split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count();
-        let t3 = "fn c() {}".split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count();
-        
+        let t1 = "fn a() {}"
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .count();
+        let t2 = "fn b() {}"
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .count();
+        let t3 = "fn c() {}"
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .count();
+
         index.add_file("src/b.rs".to_string(), "fn b() {}".to_string(), t1, t1 + t2);
         index.add_file("src/a.rs".to_string(), "fn a() {}".to_string(), 0, t1);
-        index.add_file("src/c.rs".to_string(), "fn c() {}".to_string(), t1 + t2, t1 + t2 + t3);
+        index.add_file(
+            "src/c.rs".to_string(),
+            "fn c() {}".to_string(),
+            t1 + t2,
+            t1 + t2 + t3,
+        );
         index.build_lookup_index();
-        
+
         assert_eq!(index.get_file_path(0), Some("src/a.rs"));
         assert_eq!(index.get_file_path(t1), Some("src/b.rs"));
         assert_eq!(index.get_file_path(t1 + t2), Some("src/c.rs"));
@@ -383,7 +432,7 @@ mod tests {
         index.add_file("src/a.rs".to_string(), "fn a() {}".to_string(), 0, 4);
         index.add_file("src/b.rs".to_string(), "fn b() {}".to_string(), 10, 14);
         index.build_lookup_index();
-        
+
         assert_eq!(index.get_file_path(5), None);
         assert_eq!(index.get_file_path(8), None);
         assert_eq!(index.get_file_path(20), None);
@@ -392,12 +441,18 @@ mod tests {
     #[test]
     fn test_binary_search_boundary() {
         let mut index = FileIndex::new();
-        let t1 = "fn a() {}".split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count();
-        let t2 = "fn b() {}".split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count();
+        let t1 = "fn a() {}"
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .count();
+        let t2 = "fn b() {}"
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .count();
         index.add_file("src/a.rs".to_string(), "fn a() {}".to_string(), 0, t1);
         index.add_file("src/b.rs".to_string(), "fn b() {}".to_string(), t1, t1 + t2);
         index.build_lookup_index();
-        
+
         assert_eq!(index.get_file_path(t1 - 1), Some("src/a.rs"));
         assert_eq!(index.get_file_path(t1), Some("src/b.rs"));
     }
@@ -407,13 +462,19 @@ mod tests {
         let mut index = FileIndex::new();
         let content1 = "fn hello() {}\nfn world() {}\n";
         let content2 = "struct Foo {}\nimpl Bar {}\n";
-        let t1 = content1.split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count();
-        let t2 = content2.split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count();
-        
+        let t1 = content1
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .count();
+        let t2 = content2
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .count();
+
         index.add_file("src/b.rs".to_string(), content2.to_string(), t1, t1 + t2);
         index.add_file("src/a.rs".to_string(), content1.to_string(), 0, t1);
         index.build_lookup_index();
-        
+
         let info = index.get_file_info(0);
         assert!(info.is_some());
         let (_, path, line_content) = info.unwrap();

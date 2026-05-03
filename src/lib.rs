@@ -142,7 +142,7 @@ impl VibeIndex {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
             .collect();
-        
+
         for token in &tokens {
             let id = self.lexicon.get_or_insert(token);
             self.token_positions
@@ -152,7 +152,7 @@ impl VibeIndex {
             self.token_sequence.push(id);
             self.position += 1;
         }
-        
+
         let token_end = self.position;
         self.file_index.add_file(
             path.to_string(),
@@ -256,7 +256,12 @@ impl VibeIndex {
                 let mut line_content = None;
                 if let Some((file_idx, path, lc)) = self.file_index.get_file_info(pos) {
                     file_path = Some(path);
-                    if let Some((ln, _)) = self.file_index.files.get(file_idx).and_then(|f| f.token_to_line(pos)) {
+                    if let Some((ln, _)) = self
+                        .file_index
+                        .files
+                        .get(file_idx)
+                        .and_then(|f| f.token_to_line(pos))
+                    {
                         line_number = Some(ln);
                         line_content = Some(lc);
                     }
@@ -312,7 +317,12 @@ impl VibeIndex {
                     let mut line_content = None;
                     if let Some((file_idx, path, lc)) = self.file_index.get_file_info(pos_usize) {
                         file_path = Some(path);
-                        if let Some((ln, _)) = self.file_index.files.get(file_idx).and_then(|f| f.token_to_line(pos_usize)) {
+                        if let Some((ln, _)) = self
+                            .file_index
+                            .files
+                            .get(file_idx)
+                            .and_then(|f| f.token_to_line(pos_usize))
+                        {
                             line_number = Some(ln);
                             line_content = Some(lc);
                         }
@@ -719,15 +729,24 @@ mod tests {
         let mut index = VibeIndex::new();
         let content1 = "fn main() {\n    let x = 42;\n}\n";
         let content2 = "fn helper() {\n    println!(\"hello\");\n}\n";
-        
+
         index.add_file("src/lib.rs", content1);
         index.add_file("src/main.rs", content2);
-        
+
         assert_eq!(index.file_index.files.len(), 2);
         assert_eq!(index.file_index.files[0].path, "src/lib.rs");
         assert_eq!(index.file_index.files[1].path, "src/main.rs");
-        assert_eq!(index.total_positions(), content1.split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count() + 
-                                      content2.split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count());
+        assert_eq!(
+            index.total_positions(),
+            content1
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|s| !s.is_empty())
+                .count()
+                + content2
+                    .split(|c: char| !c.is_alphanumeric())
+                    .filter(|s| !s.is_empty())
+                    .count()
+        );
     }
 
     #[test]
@@ -735,7 +754,7 @@ mod tests {
         let mut index = VibeIndex::new();
         let content = "fn authenticate(user: &str) -> Result<(), Error> {\n    Ok(())\n}\n";
         index.add_file("src/auth.rs", content);
-        
+
         let results = index.phrase_search(&["fn".into(), "authenticate".into()]);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].position, 0);
@@ -744,7 +763,11 @@ mod tests {
         assert!(results[0].line_number.is_some());
         assert_eq!(results[0].line_number.unwrap(), 1);
         assert!(results[0].line_content.is_some());
-        assert!(results[0].line_content.as_deref().unwrap().contains("authenticate"));
+        assert!(results[0]
+            .line_content
+            .as_deref()
+            .unwrap()
+            .contains("authenticate"));
     }
 
     #[test]
@@ -753,7 +776,7 @@ mod tests {
         index.add_file("src/a.rs", "fn a() {}");
         index.add_file("src/b.rs", "fn b() {}");
         index.add_file("src/c.rs", "fn c() {}");
-        
+
         let stats = index.file_index.stats();
         assert_eq!(stats.total_files, 3);
         assert!(stats.total_tokens > 0);

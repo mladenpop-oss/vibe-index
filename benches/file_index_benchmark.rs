@@ -5,8 +5,8 @@ fn generate_file_content(num_tokens: usize) -> String {
     let common_tokens = [
         "fn", "let", "mut", "if", "else", "for", "while", "return", "match", "use", "pub",
         "struct", "impl", "trait", "enum", "async", "await", "self", "Self", "String", "Vec",
-        "Option", "Result", "Some", "None", "Ok", "Err", "true", "false", "(", ")", "{", "}",
-        ";", ":", ",", ".", "=>",
+        "Option", "Result", "Some", "None", "Ok", "Err", "true", "false", "(", ")", "{", "}", ";",
+        ":", ",", ".", "=>",
     ];
 
     let mut content = String::new();
@@ -31,81 +31,78 @@ fn generate_file_content(num_tokens: usize) -> String {
     content
 }
 
-   fn bench_file_index_lookup(c: &mut Criterion) {
-        // Test file lookup performance at different scales
-        for &num_files in &[10, 50, 100, 500] {
-            let mut index = VibeIndex::new();
-            let tokens_per_file = 100;
+fn bench_file_index_lookup(c: &mut Criterion) {
+    // Test file lookup performance at different scales
+    for &num_files in &[10, 50, 100, 500] {
+        let mut index = VibeIndex::new();
+        let tokens_per_file = 100;
 
-            for file_idx in 0..num_files {
-                let path = format!("src/module_{:04}.rs", file_idx);
-                let content = generate_file_content(tokens_per_file);
-                index.add_file(&path, &content);
-            }
-
-            // Find a token that exists in the middle file
-            let search_token = "fn";
-
-            c.bench_function(
-                &format!("file_lookup_{}files_phrase_search", num_files),
-                |b| {
-                    b.iter(|| {
-                        let results = index.phrase_search(&[search_token.into(), "let".into()]);
-                        let count = results.len();
-                        black_box(count)
-                    })
-                },
-            );
+        for file_idx in 0..num_files {
+            let path = format!("src/module_{:04}.rs", file_idx);
+            let content = generate_file_content(tokens_per_file);
+            index.add_file(&path, &content);
         }
+
+        // Find a token that exists in the middle file
+        let search_token = "fn";
+
+        c.bench_function(
+            &format!("file_lookup_{}files_phrase_search", num_files),
+            |b| {
+                b.iter(|| {
+                    let results = index.phrase_search(&[search_token.into(), "let".into()]);
+                    let count = results.len();
+                    black_box(count)
+                })
+            },
+        );
     }
+}
 
-    fn bench_file_index_lookup_with_binary_search(c: &mut Criterion) {
-        // Test binary search file lookup performance at different scales
-        for &num_files in &[10, 50, 100, 500] {
-            let mut index = VibeIndex::new();
-            let tokens_per_file = 100;
+fn bench_file_index_lookup_with_binary_search(c: &mut Criterion) {
+    // Test binary search file lookup performance at different scales
+    for &num_files in &[10, 50, 100, 500] {
+        let mut index = VibeIndex::new();
+        let tokens_per_file = 100;
 
-            for file_idx in 0..num_files {
-                let path = format!("src/module_{:04}.rs", file_idx);
-                let content = generate_file_content(tokens_per_file);
-                index.add_file(&path, &content);
-            }
-
-            // Build the binary search lookup index
-            index.file_index.build_lookup_index();
-
-            let search_token = "fn";
-
-            c.bench_function(
-                &format!("file_lookup_{}files_binary_search", num_files),
-                |b| {
-                    b.iter(|| {
-                        let results = index.phrase_search(&[search_token.into(), "let".into()]);
-                        let count = results.len();
-                        black_box(count)
-                    })
-                },
-            );
+        for file_idx in 0..num_files {
+            let path = format!("src/module_{:04}.rs", file_idx);
+            let content = generate_file_content(tokens_per_file);
+            index.add_file(&path, &content);
         }
+
+        // Build the binary search lookup index
+        index.file_index.build_lookup_index();
+
+        let search_token = "fn";
+
+        c.bench_function(
+            &format!("file_lookup_{}files_binary_search", num_files),
+            |b| {
+                b.iter(|| {
+                    let results = index.phrase_search(&[search_token.into(), "let".into()]);
+                    let count = results.len();
+                    black_box(count)
+                })
+            },
+        );
     }
+}
 
 fn bench_file_index_add_file(c: &mut Criterion) {
     let content = generate_file_content(1000);
 
     for &num_files in &[10, 50, 100, 500] {
-        c.bench_function(
-            &format!("add_file_{}files", num_files),
-            |b| {
-                b.iter(|| {
-                    let mut index = VibeIndex::new();
-                    for file_idx in 0..num_files {
-                        let path = format!("src/module_{:04}.rs", file_idx);
-                        index.add_file(&path, &content);
-                    }
-                    black_box(index)
-                })
-            },
-        );
+        c.bench_function(&format!("add_file_{}files", num_files), |b| {
+            b.iter(|| {
+                let mut index = VibeIndex::new();
+                for file_idx in 0..num_files {
+                    let path = format!("src/module_{:04}.rs", file_idx);
+                    index.add_file(&path, &content);
+                }
+                black_box(index)
+            })
+        });
     }
 }
 
@@ -133,7 +130,8 @@ fn bench_file_index_persistence(c: &mut Criterion) {
             format!("save_{}files_{}KB", num_files, file_size / 1024),
             |b| {
                 b.iter(|| {
-                    let mut storage = vibe_index::persistent_storage::PersistentStorage::new(temp_path);
+                    let mut storage =
+                        vibe_index::persistent_storage::PersistentStorage::new(temp_path);
                     for file_idx in 0..num_files {
                         let path = format!("src/module_{:04}.rs", file_idx);
                         let content = generate_file_content(100);

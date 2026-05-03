@@ -58,7 +58,7 @@ impl VibeMcpServer {
     {
         let file_path = args.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
         let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
-        
+
         if file_path.is_empty() || content.is_empty() {
             return Ok(
                 modelcontextprotocol_server::mcp_protocol::types::tool::ToolCallResult {
@@ -75,11 +75,17 @@ impl VibeMcpServer {
         let index_clone = Arc::clone(&index);
         let result = tokio::task::block_in_place(|| {
             let mut idx = index_clone.blocking_lock();
-            let token_count = content.split(|c: char| !c.is_alphanumeric())
+            let token_count = content
+                .split(|c: char| !c.is_alphanumeric())
                 .filter(|s| !s.is_empty())
                 .count();
             idx.add_file(file_path, content);
-            (token_count, idx.unique_tokens(), idx.total_positions(), idx.file_index.files.len())
+            (
+                token_count,
+                idx.unique_tokens(),
+                idx.total_positions(),
+                idx.file_index.files.len(),
+            )
         });
 
         Ok(
@@ -120,19 +126,23 @@ impl VibeMcpServer {
         } else {
             let mut sorted_results: Vec<&vibe_index::MatchResult> = results.iter().collect();
             sorted_results.sort_by(|a, b| {
-                b.confidence.partial_cmp(&a.confidence)
+                b.confidence
+                    .partial_cmp(&a.confidence)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
 
             let mut grouped: Vec<(String, Vec<&vibe_index::MatchResult>)> = Vec::new();
             for r in sorted_results {
-                let key = r.file_path.clone().unwrap_or_else(|| "(unknown)".to_string());
+                let key = r
+                    .file_path
+                    .clone()
+                    .unwrap_or_else(|| "(unknown)".to_string());
                 match grouped.iter_mut().find(|(k, _)| k == &key) {
                     Some((_, matches)) => matches.push(r),
                     None => grouped.push((key, vec![r])),
                 }
             }
-            
+
             let mut lines = Vec::new();
             for (file, matches) in &grouped {
                 lines.push(format!("=== {} ({} matches) ===", file, matches.len()));
@@ -141,7 +151,10 @@ impl VibeMcpServer {
                         (Some(ln), Some(lc)) => format!("line {}: {}", ln, lc.trim()),
                         _ => format!("POS {}", r.position),
                     };
-                    lines.push(format!("  [POS {}] conf={:.2} | {}", r.position, r.confidence, line_info));
+                    lines.push(format!(
+                        "  [POS {}] conf={:.2} | {}",
+                        r.position, r.confidence, line_info
+                    ));
                 }
                 lines.push(String::new());
             }
@@ -182,19 +195,23 @@ impl VibeMcpServer {
         } else {
             let mut sorted_results: Vec<&vibe_index::MatchResult> = results.iter().collect();
             sorted_results.sort_by(|a, b| {
-                b.confidence.partial_cmp(&a.confidence)
+                b.confidence
+                    .partial_cmp(&a.confidence)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
 
             let mut grouped: Vec<(String, Vec<&vibe_index::MatchResult>)> = Vec::new();
             for r in sorted_results {
-                let key = r.file_path.clone().unwrap_or_else(|| "(unknown)".to_string());
+                let key = r
+                    .file_path
+                    .clone()
+                    .unwrap_or_else(|| "(unknown)".to_string());
                 match grouped.iter_mut().find(|(k, _)| k == &key) {
                     Some((_, matches)) => matches.push(r),
                     None => grouped.push((key, vec![r])),
                 }
             }
-            
+
             let mut lines = Vec::new();
             for (file, matches) in &grouped {
                 lines.push(format!("=== {} ({} matches) ===", file, matches.len()));
@@ -203,7 +220,10 @@ impl VibeMcpServer {
                         (Some(ln), Some(lc)) => format!("line {}: {}", ln, lc.trim()),
                         _ => format!("POS {}", r.position),
                     };
-                    lines.push(format!("  [POS {}] conf={:.2} | {}", r.position, r.confidence, line_info));
+                    lines.push(format!(
+                        "  [POS {}] conf={:.2} | {}",
+                        r.position, r.confidence, line_info
+                    ));
                 }
                 lines.push(String::new());
             }
@@ -240,21 +260,29 @@ impl VibeMcpServer {
         } else {
             let mut sorted_results: Vec<&vibe_index::MatchResult> = results.iter().collect();
             sorted_results.sort_by(|a, b| {
-                b.confidence.partial_cmp(&a.confidence)
+                b.confidence
+                    .partial_cmp(&a.confidence)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
 
             let mut grouped: Vec<(String, Vec<&vibe_index::MatchResult>)> = Vec::new();
             for r in sorted_results {
-                let key = r.file_path.clone().unwrap_or_else(|| "(unknown)".to_string());
+                let key = r
+                    .file_path
+                    .clone()
+                    .unwrap_or_else(|| "(unknown)".to_string());
                 match grouped.iter_mut().find(|(k, _)| k == &key) {
                     Some((_, matches)) => matches.push(r),
                     None => grouped.push((key, vec![r])),
                 }
             }
-            
+
             let mut lines = Vec::new();
-            lines.push(format!("Found {} matches across {} files:\n", results.len(), grouped.len()));
+            lines.push(format!(
+                "Found {} matches across {} files:\n",
+                results.len(),
+                grouped.len()
+            ));
             for (file, matches) in &grouped {
                 lines.push(format!("=== {} ({} matches) ===", file, matches.len()));
                 for r in matches.iter().take(5) {
@@ -262,7 +290,10 @@ impl VibeMcpServer {
                         (Some(ln), Some(lc)) => format!("line {}: {}", ln, lc.trim()),
                         _ => format!("POS {}", r.position),
                     };
-                    lines.push(format!("  [POS {}] conf={:.2} | {}", r.position, r.confidence, line_info));
+                    lines.push(format!(
+                        "  [POS {}] conf={:.2} | {}",
+                        r.position, r.confidence, line_info
+                    ));
                 }
                 if matches.len() > 5 {
                     lines.push(format!("  ... and {} more matches", matches.len() - 5));
@@ -302,7 +333,9 @@ impl VibeMcpServer {
         });
 
         let mem_kb = mem_bytes as f64 / 1024.0;
-        let file_list: String = file_stats.files.iter()
+        let file_list: String = file_stats
+            .files
+            .iter()
             .map(|(path, count)| format!("  - {}: {} tokens", path, count))
             .collect::<Vec<_>>()
             .join("\n");
@@ -355,9 +388,7 @@ impl VibeMcpServer {
         args: serde_json::Value,
     ) -> anyhow::Result<modelcontextprotocol_server::mcp_protocol::types::tool::ToolCallResult>
     {
-        let file_path = args.get("file_path")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let file_path = args.get("file_path").and_then(|v| v.as_str()).unwrap_or("");
 
         if file_path.is_empty() {
             return Ok(
@@ -375,7 +406,9 @@ impl VibeMcpServer {
         let index_clone = Arc::clone(&index);
         let result = tokio::task::block_in_place(|| {
             let idx = index_clone.blocking_lock();
-            idx.file_index.files.iter()
+            idx.file_index
+                .files
+                .iter()
                 .find(|f| f.path == file_path)
                 .map(|f| f.content.clone())
         });
