@@ -251,7 +251,7 @@ Add to `~/.config/opencode/opencode.jsonc` or `%APPDATA%\opencode\opencode.jsonc
 
 ## Author
 
-**Mladen Popović** — creator & sole maintainer
+**Mladen Popović** 
 
 ## Limitations
 
