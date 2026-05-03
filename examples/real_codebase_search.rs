@@ -28,10 +28,7 @@ fn main() {
     let mut index = VibeIndex::new();
     let mut file_count = 0;
 
-    for entry in WalkDir::new(base)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
+    for entry in WalkDir::new(base).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_file() {
             if let Some(ext) = path.extension() {
@@ -76,7 +73,10 @@ fn main() {
         }
 
         let line_num = r.line_number.map(|n| format!(":{}", n)).unwrap_or_default();
-        let snippet = r.highlighted_snippet.as_deref().unwrap_or(r.line_content.as_deref().unwrap_or(""));
+        let snippet = r
+            .highlighted_snippet
+            .as_deref()
+            .unwrap_or(r.line_content.as_deref().unwrap_or(""));
         println!("  {} {} {}", file, line_num, snippet);
     }
 

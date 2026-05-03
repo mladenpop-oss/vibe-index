@@ -126,7 +126,11 @@ impl Default for VibeIndex {
 
 impl VibeIndex {
     /// Create a highlighted snippet showing only the matched portion of a line
-    fn highlight_snippet(line_content: &str, query_tokens: &[String], matched_token: Option<&str>) -> String {
+    fn highlight_snippet(
+        line_content: &str,
+        query_tokens: &[String],
+        matched_token: Option<&str>,
+    ) -> String {
         if line_content.is_empty() {
             return String::new();
         }
@@ -243,7 +247,10 @@ impl VibeIndex {
             .map(|s| s.to_string())
             .collect();
 
-        let new_ids: Vec<u32> = tokens.iter().map(|t| self.lexicon.get_or_insert(t)).collect();
+        let new_ids: Vec<u32> = tokens
+            .iter()
+            .map(|t| self.lexicon.get_or_insert(t))
+            .collect();
 
         // Update bitmaps with new positions
         for (local_pos, &id) in new_ids.iter().enumerate() {
@@ -255,7 +262,8 @@ impl VibeIndex {
 
         // Replace token sequence slice
         let new_token_count = new_ids.len();
-        self.token_sequence.splice(old_token_start..old_token_end, new_ids);
+        self.token_sequence
+            .splice(old_token_start..old_token_end, new_ids);
 
         // Shift all subsequent file ranges
         let token_diff = new_token_count as isize - old_token_count as isize;
@@ -388,8 +396,14 @@ impl VibeIndex {
                     {
                         line_number = Some(ln);
                         line_content = Some(line_content_str.clone());
-                        highlighted_snippet = Some(Self::highlight_snippet(&line_content_str, query, None));
-                        let file_token_count = self.file_index.files.get(file_idx).map(|f| f.token_count).unwrap_or(0);
+                        highlighted_snippet =
+                            Some(Self::highlight_snippet(&line_content_str, query, None));
+                        let file_token_count = self
+                            .file_index
+                            .files
+                            .get(file_idx)
+                            .map(|f| f.token_count)
+                            .unwrap_or(0);
                         confidence = 1.0 + Self::file_size_weight(file_token_count);
                         if confidence > 1.0 {
                             confidence = 1.0;
@@ -458,9 +472,19 @@ impl VibeIndex {
                         {
                             line_number = Some(ln);
                             line_content = Some(line_content_str.clone());
-                            highlighted_snippet = Some(Self::highlight_snippet(&line_content_str, &[stored_token.to_string()], Some(stored_token)));
-                            let file_token_count = self.file_index.files.get(file_idx).map(|f| f.token_count).unwrap_or(0);
-                            let mut confidence = base_confidence + Self::file_size_weight(file_token_count);
+                            highlighted_snippet = Some(Self::highlight_snippet(
+                                &line_content_str,
+                                &[stored_token.to_string()],
+                                Some(stored_token),
+                            ));
+                            let file_token_count = self
+                                .file_index
+                                .files
+                                .get(file_idx)
+                                .map(|f| f.token_count)
+                                .unwrap_or(0);
+                            let mut confidence =
+                                base_confidence + Self::file_size_weight(file_token_count);
                             if confidence > 1.0 {
                                 confidence = 1.0;
                             }
