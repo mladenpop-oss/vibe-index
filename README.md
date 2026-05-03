@@ -20,16 +20,16 @@ Measured on 50K synthetic tokens, release build, single core:
 
 | Operation | Latency |
 |-----------|---------|
-| Index 50K tokens | 1.90 ms |
-| Exact phrase (1 match) | **117 ns** |
-| Exact phrase (~100 matches) | 197 µs |
-| Phrase not found (early exit) | 86 ns |
-| Fuzzy 1-char typo | **2.10 µs** |
-| Fuzzy 2-char typo | 65.79 µs |
-| Fuzzy no match (early exit) | 126 ns |
-| Unified NL search | 117 µs |
-| Unified + typo tolerance | 39.6 µs |
-| Hybrid BM25 + Vibe | 7.99 µs |
+| Index 50K tokens | 1.84 ms |
+| Exact phrase (1 match) | **111 ns** |
+| Exact phrase (~100 matches) | 188 µs |
+| Phrase not found (early exit) | 80 ns |
+| Fuzzy 1-char typo | **4.47 µs** |
+| Fuzzy 2-char typo | 66.8 µs |
+| Fuzzy no match (early exit) | 116 ns |
+| Unified NL search | 120 µs |
+| Unified + typo tolerance | 35.8 µs |
+| Hybrid BM25 + Vibe | 6.9 µs |
 
 Real codebase (vibe-index itself, 15.8K tokens, 0.14 MB memory):
 
@@ -45,12 +45,12 @@ File-aware search with metadata (file_path, line_number, line_content):
 
 | Operation | Latency |
 |-----------|---------|
-| Phrase search (10 files) | 16.2 µs |
-| Phrase search (100 files) | 175 µs |
-| Phrase search (500 files) | 916 µs |
-| Add file (10 files) | 657 µs |
-| Add file (500 files) | 33.1 ms |
-| Persist + reload (100 files) | 147 µs |
+| Phrase search (10 files) | 21.5 µs |
+| Phrase search (100 files) | 239 µs |
+| Phrase search (500 files) | 1.12 ms |
+| Add file (10 files) | 677 µs |
+| Add file (500 files) | 34.5 ms |
+| Persist + reload (100 files) | 128 µs |
 
 ## Why
 
@@ -63,6 +63,8 @@ Vibe Index solves this by:
 3. **Minimal context injection** — inject ±50 tokens around the match, not 1024-token chunks
 4. **Typo tolerance** — "proces" still finds "process" in 2µs via bigram prefiltering
 5. **Hybrid with BM25** — BM25 finds relevant documents, Vibe pinpoints exact lines within them
+6. **Incremental updates** — `update_file()` changes only modified files using content hashing
+7. **Ranked results** — confidence scoring with file size weighting and snippet highlighting
 
 ## Quick Start
 
@@ -81,6 +83,11 @@ fn authenticate(user: &str) -> Result<(), Error> {
     Ok(())
 }
 "#);
+
+// Or index raw text (legacy, no file tracking)
+for token in &["fn", "main", "(", ")"] {
+    index.add_token(token);
+}
 
 // Exact phrase search — returns file_path, line_number, line_content
 let results = index.phrase_search(&["fn".into(), "authenticate".into()]);
@@ -145,9 +152,9 @@ Vibe Index is 100-1000x faster than embedding search and provides exact position
 
 | Module | Purpose |
 |--------|---------|
-| `VibeIndex` | Core engine: index, phrase search, fuzzy search, unified search |
+| `VibeIndex` | Core engine: index, phrase/fuzzy/unified search, incremental `update_file()` |
 | `TokenLexicon` | u32 ID ↔ String mapping + bigram index for fast fuzzy prefiltering |
-| `file_index` | File metadata: paths, content, line offsets, token-to-line mapping, persistence |
+| `file_index` | File metadata: paths, content, line offsets, token-to-line mapping, FNV-1a hashing |
 | `query_parser` | NL → search phrases: splits camelCase, snake_case, `::` paths, strips stop words |
 | `bm25` | Lightweight BM25 scorer for document-level candidate ranking |
 | `hybrid_search` | BM25 candidates → Vibe Index exact position validation |
@@ -241,7 +248,30 @@ Add to `~/.config/opencode/opencode.jsonc` or `%APPDATA%\opencode\opencode.jsonc
 {"name": "get_file_content", "arguments": {"file_path": "src/auth.rs"}}
 ```
 
+## Example
+
+Index a real codebase and search it:
+
+```bash
+cargo run --example real_codebase_search -- <directory> <query>
+```
+
+Example:
+```bash
+cargo run --example real_codebase_search -- src "fn main"
+```
+
+This walks all `.rs` files in the directory, indexes them with file metadata, and performs unified search (phrase + fuzzy) with ranked results.
+
 ## Recent Updates
+
+### v0.1.2 — Incremental Indexing & Search Enhancements
+
+- **Incremental file indexing** — `update_file()` updates changed files without full re-index. Uses FNV-1a content hashing for change detection.
+- **Snippet highlighting** — matched tokens are wrapped in `**bold**` markers for easy visual identification.
+- **File size weighting** — larger files get a logarithmic confidence boost (diminishing returns).
+- **Fuzzy search ranking** — fuzzy matches now benefit from file size weighting, consistent with phrase search.
+- **`real_codebase_search` example** — new example that indexes a real codebase and searches it.
 
 ### v0.1.1 — Performance & UX Improvements
 

@@ -18,12 +18,15 @@ pub struct FileSegment {
     pub token_line_map: Vec<usize>,
     /// Number of tokens in this file
     pub token_count: usize,
+    /// Content hash (FNV-1a) for change detection
+    pub content_hash: u64,
 }
 
 impl FileSegment {
     pub fn new(path: String, content: String, token_start: usize, token_end: usize) -> Self {
         let line_offsets = Self::compute_line_offsets(&content);
         let token_line_map = Self::build_token_line_map(&content);
+        let content_hash = Self::compute_hash(&content);
         Self {
             path,
             content,
@@ -32,7 +35,23 @@ impl FileSegment {
             line_offsets,
             token_line_map,
             token_count: token_end - token_start,
+            content_hash,
         }
+    }
+
+    /// Compute FNV-1a hash of content for change detection
+    pub fn compute_hash(content: &str) -> u64 {
+        let mut hash: u64 = 0xcbf29ce484222325;
+        for byte in content.bytes() {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        hash
+    }
+
+    /// Check if content has changed since last indexing
+    pub fn content_changed(&self, new_content: &str) -> bool {
+        Self::compute_hash(new_content) != self.content_hash
     }
 
     /// Compute byte offsets for each line in the file content
@@ -480,5 +499,39 @@ mod tests {
         let (_, path, line_content) = info.unwrap();
         assert_eq!(path, "src/a.rs");
         assert!(line_content.contains("hello"));
+    }
+
+    #[test]
+    fn test_content_hash_consistency() {
+        let content = "fn main() {\n    println!(\"hello\");\n}\n";
+        let hash1 = FileSegment::compute_hash(content);
+        let hash2 = FileSegment::compute_hash(content);
+        assert_eq!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_content_hash_different() {
+        let content1 = "fn main() {}";
+        let content2 = "fn main() { println!(\"hi\"); }";
+        let hash1 = FileSegment::compute_hash(content1);
+        let hash2 = FileSegment::compute_hash(content2);
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_content_changed_detection() {
+        let content = "fn main() {}";
+        let segment = FileSegment::new("test.rs".to_string(), content.to_string(), 0, 4);
+        assert!(!segment.content_changed(content));
+        assert!(segment.content_changed("fn hello() {}"));
+    }
+
+    #[test]
+    fn test_file_segment_with_hash() {
+        let content = "fn main() {\n    let x = 42;\n}\n";
+        let segment = FileSegment::new("test.rs".to_string(), content.to_string(), 0, 10);
+        assert_ne!(segment.content_hash, 0);
+        assert!(!segment.content_changed(content));
+        assert!(segment.content_changed("different content"));
     }
 }

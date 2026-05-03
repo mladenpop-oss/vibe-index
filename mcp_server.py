@@ -69,6 +69,37 @@ class VibeIndex:
         self._next_id = 0
         self.files: list[FileSegment] = []
     
+    def highlight_snippet(self, line_content: str, query_tokens: list[str], matched_token: str | None = None) -> str:
+        if not line_content:
+            return ""
+        token = matched_token
+        if token and token in line_content:
+            idx = line_content.find(token)
+            before = line_content[:idx]
+            match_str = line_content[idx:idx + len(token)]
+            after = line_content[idx + len(token):]
+            return f"{before}**{match_str}**{after}"
+        for qt in query_tokens:
+            if qt in line_content:
+                idx = line_content.find(qt)
+                before = line_content[:idx]
+                match_str = line_content[idx:idx + len(qt)]
+                after = line_content[idx + len(qt):]
+                return f"{before}**{match_str}**{after}"
+        return line_content
+    
+    def file_size_weight(self, token_count: int) -> float:
+        if token_count == 0:
+            return 0.0
+        import math
+        return math.log10(token_count) * 0.01
+    
+    def get_file_token_count(self, token_pos: int) -> int:
+        for file_seg in self.files:
+            if file_seg.contains_token(token_pos):
+                return file_seg.token_count
+        return 0
+    
     def add_token(self, token: str) -> None:
         token_lower = token.lower()
         if token_lower not in self.lexicon:
@@ -132,13 +163,20 @@ class VibeIndex:
             if match:
                 context = self._get_context(pos)
                 file_path, line_num, line_content = self.get_file_info(pos)
+                confidence = 1.0
+                highlighted_snippet = None
+                if line_content:
+                    file_token_count = self.get_file_token_count(pos)
+                    confidence = min(1.0, 1.0 + self.file_size_weight(file_token_count))
+                    highlighted_snippet = self.highlight_snippet(line_content, [t.lower() for t in tokens], None)
                 results.append({
                     "position": pos,
-                    "confidence": 1.0,
+                    "confidence": confidence,
                     "context": context,
                     "file_path": file_path,
                     "line_number": line_num,
                     "line_content": line_content,
+                    "highlighted_snippet": highlighted_snippet,
                 })
         
         return results
@@ -162,10 +200,16 @@ class VibeIndex:
             
             dist = self._levenshtein(query_lower, token)
             if dist <= max_distance:
-                confidence = 1.0 - (dist / max(len(query_lower), len(token)))
+                base_confidence = 1.0 - (dist / max(len(query_lower), len(token)))
                 pos = self.token_positions[tid][0] if self.token_positions[tid] else 0
                 context = self._get_context(pos)
                 file_path, line_num, line_content = self.get_file_info(pos)
+                confidence = base_confidence
+                highlighted_snippet = None
+                if line_content:
+                    file_token_count = self.get_file_token_count(pos)
+                    confidence = min(1.0, base_confidence + self.file_size_weight(file_token_count))
+                    highlighted_snippet = self.highlight_snippet(line_content, [query_lower], token)
                 results.append({
                     "position": pos,
                     "confidence": confidence,
@@ -174,6 +218,7 @@ class VibeIndex:
                     "file_path": file_path,
                     "line_number": line_num,
                     "line_content": line_content,
+                    "highlighted_snippet": highlighted_snippet,
                 })
         
         return sorted(results, key=lambda x: x["confidence"], reverse=True)
@@ -300,7 +345,10 @@ async def phrase_search(phrase: str) -> str:
     for file, matches in grouped.items():
         lines.append(f"=== {file} ({len(matches)} matches) ===")
         for r in matches:
-            if r.get("line_number") and r.get("line_content"):
+            snippet = r.get("highlighted_snippet")
+            if snippet:
+                line_info = f"line {r['line_number']}: {snippet}"
+            elif r.get("line_number") and r.get("line_content"):
                 line_info = f"line {r['line_number']}: {r['line_content'].strip()}"
             else:
                 line_info = f"POS {r['position']}"
@@ -329,7 +377,10 @@ async def fuzzy_search(query: str, max_distance: int = 1) -> str:
     for file, matches in grouped.items():
         lines.append(f"=== {file} ({len(matches)} matches) ===")
         for r in matches:
-            if r.get("line_number") and r.get("line_content"):
+            snippet = r.get("highlighted_snippet")
+            if snippet:
+                line_info = f"line {r['line_number']}: {snippet}"
+            elif r.get("line_number") and r.get("line_content"):
                 line_info = f"line {r['line_number']}: {r['line_content'].strip()}"
             else:
                 line_info = f"POS {r['position']}"
@@ -359,7 +410,10 @@ async def search(query: str) -> str:
     for file, matches in grouped.items():
         lines.append(f"=== {file} ({len(matches)} matches) ===")
         for r in matches[:5]:
-            if r.get("line_number") and r.get("line_content"):
+            snippet = r.get("highlighted_snippet")
+            if snippet:
+                line_info = f"line {r['line_number']}: {snippet}"
+            elif r.get("line_number") and r.get("line_content"):
                 line_info = f"line {r['line_number']}: {r['line_content'].strip()}"
             else:
                 line_info = f"POS {r['position']}"

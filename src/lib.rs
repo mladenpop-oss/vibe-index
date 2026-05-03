@@ -10,6 +10,7 @@ pub struct MatchResult {
     pub file_path: Option<String>,
     pub line_number: Option<usize>,
     pub line_content: Option<String>,
+    pub highlighted_snippet: Option<String>,
 }
 
 /// Bidirectional token lexicon: maps u32 ID <-> String token.
@@ -124,6 +125,43 @@ impl Default for VibeIndex {
 }
 
 impl VibeIndex {
+    /// Create a highlighted snippet showing only the matched portion of a line
+    fn highlight_snippet(line_content: &str, query_tokens: &[String], matched_token: Option<&str>) -> String {
+        if line_content.is_empty() {
+            return String::new();
+        }
+
+        if let Some(token) = matched_token {
+            if let Some(idx) = line_content.find(token) {
+                let before = &line_content[..idx];
+                let match_str = &line_content[idx..idx + token.len()];
+                let after = &line_content[idx + token.len()..];
+                return format!("{}**{}**{}", before, match_str, after);
+            }
+        }
+
+        for qt in query_tokens {
+            if let Some(idx) = line_content.find(qt.as_str()) {
+                let before = &line_content[..idx];
+                let match_str = &line_content[idx..idx + qt.len()];
+                let after = &line_content[idx + qt.len()..];
+                return format!("{}**{}**{}", before, match_str, after);
+            }
+        }
+
+        line_content.to_string()
+    }
+
+    /// Compute file size weight bonus based on token count
+    /// Larger files get a small confidence boost (diminishing returns)
+    fn file_size_weight(token_count: usize) -> f64 {
+        if token_count == 0 {
+            return 0.0;
+        }
+        // Logarithmic scaling: 100 tokens = ~0.02, 1000 tokens = ~0.05, 10000 tokens = ~0.07
+        (token_count as f64).log10() * 0.01
+    }
+
     pub fn new() -> Self {
         Self {
             lexicon: TokenLexicon::new(),
@@ -160,6 +198,90 @@ impl VibeIndex {
             token_start,
             token_end,
         );
+    }
+
+    /// Update a file if its content has changed (returns true if updated)
+    pub fn update_file(&mut self, path: &str, content: &str) -> bool {
+        // Find existing file by path
+        let file_idx = match self.file_index.files.iter().position(|f| f.path == path) {
+            Some(idx) => idx,
+            None => {
+                // File not found, add it normally
+                self.add_file(path, content);
+                return true;
+            }
+        };
+
+        let file = &self.file_index.files[file_idx];
+
+        // Check if content changed
+        if !file.content_changed(content) {
+            return false;
+        }
+
+        let old_token_start = file.token_start;
+        let old_token_end = file.token_end;
+        let old_token_count = old_token_end - old_token_start;
+
+        // Remove old token positions from bitmap
+        for local_pos in 0..old_token_count {
+            let global_pos = old_token_start + local_pos;
+            if let Some(&token_id) = self.token_sequence.get(global_pos) {
+                if let Some(bitmap) = self.token_positions.get_mut(&token_id) {
+                    bitmap.remove(global_pos as u32);
+                    if bitmap.is_empty() {
+                        self.token_positions.remove(&token_id);
+                    }
+                }
+            }
+        }
+
+        // Re-index the file content at the same position
+        let tokens: Vec<String> = content
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+
+        let new_ids: Vec<u32> = tokens.iter().map(|t| self.lexicon.get_or_insert(t)).collect();
+
+        // Update bitmaps with new positions
+        for (local_pos, &id) in new_ids.iter().enumerate() {
+            self.token_positions
+                .entry(id)
+                .or_default()
+                .push((old_token_start + local_pos) as u32);
+        }
+
+        // Replace token sequence slice
+        let new_token_count = new_ids.len();
+        self.token_sequence.splice(old_token_start..old_token_end, new_ids);
+
+        // Shift all subsequent file ranges
+        let token_diff = new_token_count as isize - old_token_count as isize;
+        for file in &mut self.file_index.files[file_idx + 1..] {
+            file.token_start = (file.token_start as isize + token_diff) as usize;
+            file.token_end = (file.token_end as isize + token_diff) as usize;
+        }
+
+        // Update file metadata
+        let new_token_end = old_token_start + new_token_count;
+        let line_offsets = crate::file_index::FileSegment::compute_line_offsets(content);
+        let token_line_map = crate::file_index::FileSegment::build_token_line_map(content);
+        let content_hash = crate::file_index::FileSegment::compute_hash(content);
+
+        self.file_index.files[file_idx] = crate::file_index::FileSegment {
+            path: path.to_string(),
+            content: content.to_string(),
+            token_start: old_token_start,
+            token_end: new_token_end,
+            line_offsets,
+            token_line_map,
+            token_count: new_token_end - old_token_start,
+            content_hash,
+        };
+
+        true
     }
 
     /// Add a single token (legacy method, no file tracking)
@@ -254,25 +376,34 @@ impl VibeIndex {
                 let mut file_path = None;
                 let mut line_number = None;
                 let mut line_content = None;
-                if let Some((file_idx, path, lc)) = self.file_index.get_file_info(pos) {
+                let mut highlighted_snippet = None;
+                let mut confidence = 1.0;
+                if let Some((file_idx, path, _lc)) = self.file_index.get_file_info(pos) {
                     file_path = Some(path);
-                    if let Some((ln, _)) = self
+                    if let Some((ln, line_content_str)) = self
                         .file_index
                         .files
                         .get(file_idx)
                         .and_then(|f| f.token_to_line(pos))
                     {
                         line_number = Some(ln);
-                        line_content = Some(lc);
+                        line_content = Some(line_content_str.clone());
+                        highlighted_snippet = Some(Self::highlight_snippet(&line_content_str, query, None));
+                        let file_token_count = self.file_index.files.get(file_idx).map(|f| f.token_count).unwrap_or(0);
+                        confidence = 1.0 + Self::file_size_weight(file_token_count);
+                        if confidence > 1.0 {
+                            confidence = 1.0;
+                        }
                     }
                 }
                 MatchResult {
                     position: pos,
                     context,
-                    confidence: 1.0,
+                    confidence,
                     file_path,
                     line_number,
                     line_content,
+                    highlighted_snippet,
                 }
             })
             .collect()
@@ -315,29 +446,51 @@ impl VibeIndex {
                     let mut file_path = None;
                     let mut line_number = None;
                     let mut line_content = None;
-                    if let Some((file_idx, path, lc)) = self.file_index.get_file_info(pos_usize) {
+                    let mut highlighted_snippet = None;
+                    let base_confidence = 1.0 - (distance as f64 / (max_distance as f64 + 1.0));
+                    if let Some((file_idx, path, _lc)) = self.file_index.get_file_info(pos_usize) {
                         file_path = Some(path);
-                        if let Some((ln, _)) = self
+                        if let Some((ln, line_content_str)) = self
                             .file_index
                             .files
                             .get(file_idx)
                             .and_then(|f| f.token_to_line(pos_usize))
                         {
                             line_number = Some(ln);
-                            line_content = Some(lc);
+                            line_content = Some(line_content_str.clone());
+                            highlighted_snippet = Some(Self::highlight_snippet(&line_content_str, &[stored_token.to_string()], Some(stored_token)));
+                            let file_token_count = self.file_index.files.get(file_idx).map(|f| f.token_count).unwrap_or(0);
+                            let mut confidence = base_confidence + Self::file_size_weight(file_token_count);
+                            if confidence > 1.0 {
+                                confidence = 1.0;
+                            }
+                            results.push(MatchResult {
+                                position: pos_usize,
+                                context: format!(
+                                    "[POS {}] fuzzy: '{}' (dist={}) -> '{}'",
+                                    pos, stored_token, distance, query
+                                ),
+                                confidence,
+                                file_path,
+                                line_number,
+                                line_content,
+                                highlighted_snippet,
+                            });
                         }
+                    } else {
+                        results.push(MatchResult {
+                            position: pos_usize,
+                            context: format!(
+                                "[POS {}] fuzzy: '{}' (dist={}) -> '{}'",
+                                pos, stored_token, distance, query
+                            ),
+                            confidence: base_confidence,
+                            file_path,
+                            line_number,
+                            line_content,
+                            highlighted_snippet,
+                        });
                     }
-                    results.push(MatchResult {
-                        position: pos_usize,
-                        context: format!(
-                            "[POS {}] fuzzy: '{}' (dist={}) -> '{}'",
-                            pos, stored_token, distance, query
-                        ),
-                        confidence: 1.0 - (distance as f64 / (max_distance as f64 + 1.0)),
-                        file_path,
-                        line_number,
-                        line_content,
-                    });
                 }
             }
         }
@@ -361,7 +514,12 @@ impl VibeIndex {
         for phrase in &phrases {
             let results = self.phrase_search(phrase);
             for mut r in results {
-                r.confidence = 0.95;
+                // Preserve file size weight, cap at 0.95 base
+                let file_weight = (r.confidence - 0.95).max(0.0);
+                r.confidence = 0.95 + file_weight;
+                if r.confidence > 1.0 {
+                    r.confidence = 1.0;
+                }
                 if seen_positions.insert(r.position) {
                     all_results.push(r);
                 }
@@ -780,5 +938,88 @@ mod tests {
         let stats = index.file_index.stats();
         assert_eq!(stats.total_files, 3);
         assert!(stats.total_tokens > 0);
+    }
+
+    #[test]
+    fn test_update_file_no_change() {
+        let mut index = VibeIndex::new();
+        let content = "fn main() {\n    let x = 42;\n}\n";
+        index.add_file("src/lib.rs", content);
+        assert_eq!(index.file_index.files.len(), 1);
+
+        // Update with same content should return false
+        let updated = index.update_file("src/lib.rs", content);
+        assert!(!updated);
+        assert_eq!(index.file_index.files.len(), 1);
+    }
+
+    #[test]
+    fn test_update_file_changed() {
+        let mut index = VibeIndex::new();
+        let old_content = "fn main() {\n    let x = 42;\n}\n";
+        let new_content = "fn main() {\n    let y = 100;\n}\n";
+        index.add_file("src/lib.rs", old_content);
+        assert_eq!(index.file_index.files.len(), 1);
+
+        // Update with different content should return true
+        let updated = index.update_file("src/lib.rs", new_content);
+        assert!(updated);
+        assert_eq!(index.file_index.files.len(), 1);
+        assert_eq!(index.file_index.files[0].content, new_content);
+    }
+
+    #[test]
+    fn test_update_file_new_file() {
+        let mut index = VibeIndex::new();
+        let content = "fn helper() {\n    println!(\"hello\");\n}\n";
+
+        // Update with non-existent file should add it
+        let updated = index.update_file("src/helper.rs", content);
+        assert!(updated);
+        assert_eq!(index.file_index.files.len(), 1);
+        assert_eq!(index.file_index.files[0].path, "src/helper.rs");
+    }
+
+    #[test]
+    fn test_update_file_shifts_subsequent_ranges() {
+        let mut index = VibeIndex::new();
+        let content1 = "fn a() {}";
+        let content2 = "fn b() {}\nfn c() {}";
+        let content1_new = "fn a() { println!(\"hi\"); }";
+
+        index.add_file("src/a.rs", content1);
+        index.add_file("src/b.rs", content2);
+
+        let old_b_start = index.file_index.files[1].token_start;
+
+        // Update first file to be longer
+        index.update_file("src/a.rs", content1_new);
+
+        // Second file's token range should be shifted
+        assert!(index.file_index.files[1].token_start > old_b_start);
+    }
+
+    #[test]
+    fn test_update_file_search_after_update() {
+        let mut index = VibeIndex::new();
+        let old_content = "fn oldfunc() {\n    let x = 42;\n}\n";
+        let new_content = "fn newfunc() {\n    let y = 100;\n}\n";
+
+        index.add_file("src/lib.rs", old_content);
+
+        // Search for old content
+        let old_results = index.phrase_search(&["fn".into(), "oldfunc".into()]);
+        assert_eq!(old_results.len(), 1);
+
+        // Update file
+        index.update_file("src/lib.rs", new_content);
+
+        // Search for old content should return nothing
+        let old_results_after = index.phrase_search(&["fn".into(), "oldfunc".into()]);
+        assert!(old_results_after.is_empty());
+
+        // Search for new content should find it
+        let new_results = index.phrase_search(&["fn".into(), "newfunc".into()]);
+        assert_eq!(new_results.len(), 1);
     }
 }
