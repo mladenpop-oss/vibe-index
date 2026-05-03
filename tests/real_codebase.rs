@@ -35,15 +35,10 @@ fn tokenize_rust_source(source: &str) -> Vec<String> {
                 chars.next();
                 let closing = "#".repeat(hash_count) + "\"";
                 let mut buf = String::new();
-                loop {
-                    match chars.next() {
-                        Some(nc) => {
-                            buf.push(nc);
-                            if buf.ends_with(&closing) {
-                                break;
-                            }
-                        }
-                        None => break,
+                for nc in chars.by_ref() {
+                    buf.push(nc);
+                    if buf.ends_with(&closing) {
+                        break;
                     }
                 }
                 tokens.push("RAW_STR".to_string());
@@ -66,7 +61,7 @@ fn tokenize_rust_source(source: &str) -> Vec<String> {
 
         // Skip line comments
         if c == '/' && chars.peek() == Some(&'/') {
-            while let Some(nc) = chars.next() {
+            for nc in chars.by_ref() {
                 if nc == '\n' {
                     break;
                 }
@@ -77,15 +72,10 @@ fn tokenize_rust_source(source: &str) -> Vec<String> {
         // Skip block comments
         if c == '/' && chars.peek() == Some(&'*') {
             chars.next();
-            loop {
-                match chars.next() {
-                    Some(nc) => {
-                        if nc == '*' && chars.peek() == Some(&'/') {
-                            chars.next();
-                            break;
-                        }
-                    }
-                    None => break,
+            while let Some(nc) = chars.next() {
+                if nc == '*' && chars.peek() == Some(&'/') {
+                    chars.next();
+                    break;
                 }
             }
             continue;
@@ -406,7 +396,7 @@ fn test_real_codebase_stats() {
         .iter()
         .filter_map(|(&id, bitmap)| index.lexicon.get_token(id).map(|t| (id, t, bitmap.len())))
         .collect();
-    freq.sort_by(|a, b| b.2.cmp(&a.2));
+    freq.sort_by_key(|b| std::cmp::Reverse(b.2));
 
     eprintln!("\nTop 20 tokens by frequency:");
     for (i, (_, token, count)) in freq.iter().take(20).enumerate() {

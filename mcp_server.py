@@ -1,4 +1,4 @@
-"""Vibe Index MCP Server - Python implementation"""
+"""Vibe Index MCP Server - Python implementation with file tracking"""
 import sys
 import json
 import re
@@ -6,6 +6,57 @@ import asyncio
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("vibe-index")
+
+
+class FileSegment:
+    """Represents a single indexed file with line tracking"""
+    def __init__(self, path: str, content: str, token_start: int, token_end: int):
+        self.path = path
+        self.content = content
+        self.token_start = token_start
+        self.token_end = token_end
+        self.token_count = token_end - token_start
+        self.line_offsets = self._compute_line_offsets(content)
+    
+    def _compute_line_offsets(self, content: str) -> list:
+        offsets = [0]
+        for i, byte in enumerate(content):
+            if byte == '\n':
+                offsets.append(i + 1)
+        return offsets
+    
+    def byte_offset_to_line(self, byte_offset: int) -> int:
+        import bisect
+        idx = bisect.bisect_right(self.line_offsets, byte_offset) - 1
+        if idx < 0:
+            return 1
+        # If we're exactly on a line boundary (start of line), return that line
+        if byte_offset > self.line_offsets[idx]:
+            return idx + 1
+        return idx + 1
+    
+    def token_to_line(self, global_token_pos: int) -> tuple:
+        if global_token_pos < self.token_start or global_token_pos >= self.token_end:
+            return None
+        local_token_pos = global_token_pos - self.token_start
+        total_tokens = self.token_count
+        total_bytes = len(self.content)
+        if total_tokens == 0:
+            return None
+        estimated_byte_pos = int(local_token_pos / total_tokens * total_bytes)
+        line_number = self.byte_offset_to_line(estimated_byte_pos)
+        line_content = self.get_line_content(line_number)
+        return (line_number, line_content)
+    
+    def get_line_content(self, line_number: int) -> str:
+        if line_number <= 0 or line_number > len(self.line_offsets):
+            return ""
+        start = self.line_offsets[line_number - 1]
+        end = self.line_offsets[line_number] if line_number < len(self.line_offsets) else len(self.content)
+        return self.content[start:end].rstrip('\n')
+    
+    def contains_token(self, global_pos: int) -> bool:
+        return global_pos >= self.token_start and global_pos < self.token_end
 
 
 class VibeIndex:
@@ -16,6 +67,7 @@ class VibeIndex:
         self.token_sequence: list[int] = []
         self.bigram_index: dict[str, set[int]] = {}
         self._next_id = 0
+        self.files: list[FileSegment] = []
     
     def add_token(self, token: str) -> None:
         token_lower = token.lower()
@@ -35,6 +87,26 @@ class VibeIndex:
             if bigram not in self.bigram_index:
                 self.bigram_index[bigram] = set()
             self.bigram_index[bigram].add(token_id)
+    
+    def add_file(self, file_path: str, content: str) -> None:
+        token_start = len(self.token_sequence)
+        tokens = re.split(r'[^a-zA-Z0-9_]+', content)
+        tokens = [t for t in tokens if t]
+        
+        for token in tokens:
+            self.add_token(token)
+        
+        token_end = len(self.token_sequence)
+        file_segment = FileSegment(file_path, content, token_start, token_end)
+        self.files.append(file_segment)
+    
+    def get_file_info(self, token_pos: int) -> tuple:
+        for file_seg in self.files:
+            if file_seg.contains_token(token_pos):
+                line_info = file_seg.token_to_line(token_pos)
+                if line_info:
+                    return (file_seg.path, line_info[0], line_info[1])
+        return (None, None, None)
     
     def phrase_search(self, tokens: list[str]) -> list[dict]:
         if not tokens:
@@ -59,10 +131,14 @@ class VibeIndex:
             
             if match:
                 context = self._get_context(pos)
+                file_path, line_num, line_content = self.get_file_info(pos)
                 results.append({
                     "position": pos,
                     "confidence": 1.0,
-                    "context": context
+                    "context": context,
+                    "file_path": file_path,
+                    "line_number": line_num,
+                    "line_content": line_content,
                 })
         
         return results
@@ -89,11 +165,15 @@ class VibeIndex:
                 confidence = 1.0 - (dist / max(len(query_lower), len(token)))
                 pos = self.token_positions[tid][0] if self.token_positions[tid] else 0
                 context = self._get_context(pos)
+                file_path, line_num, line_content = self.get_file_info(pos)
                 results.append({
                     "position": pos,
                     "confidence": confidence,
                     "context": context,
-                    "matched_token": token
+                    "matched_token": token,
+                    "file_path": file_path,
+                    "line_number": line_num,
+                    "line_content": line_content,
                 })
         
         return sorted(results, key=lambda x: x["confidence"], reverse=True)
@@ -192,6 +272,13 @@ async def index_text(text: str) -> str:
 
 
 @mcp.tool()
+async def index_file(file_path: str, content: str) -> str:
+    token_count = len([t for t in re.split(r'[^a-zA-Z0-9_]+', content) if t])
+    index.add_file(file_path, content)
+    return f"Indexed file '{file_path}': {token_count} tokens ({index.unique_tokens()} unique tokens total, {index.total_positions()} positions, {len(index.files)} files indexed)"
+
+
+@mcp.tool()
 async def phrase_search(phrase: str) -> str:
     tokens = re.split(r'[^a-zA-Z0-9_]+', phrase)
     tokens = [t for t in tokens if t]
@@ -201,10 +288,26 @@ async def phrase_search(phrase: str) -> str:
     if not results:
         return "No matches found."
     
-    return "\n".join(
-        f"[POS {r['position']}] conf={r['confidence']:.2f} {r['context']}"
-        for r in results
-    )
+    # Group by file
+    grouped = {}
+    for r in results:
+        key = r.get("file_path") or "(unknown)"
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(r)
+    
+    lines = []
+    for file, matches in grouped.items():
+        lines.append(f"=== {file} ({len(matches)} matches) ===")
+        for r in matches:
+            if r.get("line_number") and r.get("line_content"):
+                line_info = f"line {r['line_number']}: {r['line_content'].strip()}"
+            else:
+                line_info = f"POS {r['position']}"
+            lines.append(f"  [POS {r['position']}] conf={r['confidence']:.2f} | {line_info}")
+        lines.append("")
+    
+    return "\n".join(lines)
 
 
 @mcp.tool()
@@ -214,10 +317,26 @@ async def fuzzy_search(query: str, max_distance: int = 1) -> str:
     if not results:
         return "No fuzzy matches found."
     
-    return "\n".join(
-        f"[POS {r['position']}] conf={r['confidence']:.2f} {r.get('matched_token', '')} - {r['context']}"
-        for r in results
-    )
+    # Group by file
+    grouped = {}
+    for r in results:
+        key = r.get("file_path") or "(unknown)"
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(r)
+    
+    lines = []
+    for file, matches in grouped.items():
+        lines.append(f"=== {file} ({len(matches)} matches) ===")
+        for r in matches:
+            if r.get("line_number") and r.get("line_content"):
+                line_info = f"line {r['line_number']}: {r['line_content'].strip()}"
+            else:
+                line_info = f"POS {r['position']}"
+            lines.append(f"  [POS {r['position']}] conf={r['confidence']:.2f} | {line_info} (matched: {r.get('matched_token', '')})")
+        lines.append("")
+    
+    return "\n".join(lines)
 
 
 @mcp.tool()
@@ -227,16 +346,36 @@ async def search(query: str) -> str:
     if not results:
         return "No matches found."
     
-    return "\n".join(
-        f"[POS {r['position']}] conf={r['confidence']:.2f} {r['context']}"
-        for r in results
-    )
+    # Group by file
+    grouped = {}
+    for r in results:
+        key = r.get("file_path") or "(unknown)"
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(r)
+    
+    lines = []
+    lines.append(f"Found {len(results)} matches across {len(grouped)} files:\n")
+    for file, matches in grouped.items():
+        lines.append(f"=== {file} ({len(matches)} matches) ===")
+        for r in matches[:5]:
+            if r.get("line_number") and r.get("line_content"):
+                line_info = f"line {r['line_number']}: {r['line_content'].strip()}"
+            else:
+                line_info = f"POS {r['position']}"
+            lines.append(f"  [POS {r['position']}] conf={r['confidence']:.2f} | {line_info}")
+        if len(matches) > 5:
+            lines.append(f"  ... and {len(matches) - 5} more matches")
+        lines.append("")
+    
+    return "\n".join(lines)
 
 
 @mcp.tool()
 async def get_stats() -> str:
     mem_kb = index.estimated_memory_bytes() / 1024
-    return f"Total positions: {index.total_positions()}\nUnique tokens: {index.unique_tokens()}\nMemory: {mem_kb:.2f} KB ({index.estimated_memory_bytes()} bytes)"
+    file_list = "\n".join(f"  - {f.path}: {f.token_count} tokens" for f in index.files)
+    return f"Total positions: {index.total_positions()}\nUnique tokens: {index.unique_tokens()}\nMemory: {mem_kb:.2f} KB ({index.estimated_memory_bytes()} bytes)\nFiles indexed: {len(index.files)}\n\n{file_list}\nTotal indexed tokens: {sum(f.token_count for f in index.files)}"
 
 
 @mcp.tool()

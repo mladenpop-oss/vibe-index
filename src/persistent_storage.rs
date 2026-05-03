@@ -1,3 +1,4 @@
+use crate::file_index::FileIndex;
 use crate::VibeIndex;
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -32,6 +33,9 @@ pub struct PersistentIndex {
     /// Serialized token position bitmaps (token_id -> base64-encoded roaring bitmap)
     #[serde(skip_serializing_if = "Option::is_none")]
     token_positions: Option<HashMap<String, String>>,
+    /// File metadata: file paths, content, line offsets, token-to-line mappings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    file_index: Option<FileIndex>,
 }
 
 /// Persistent storage manager for VibeIndex
@@ -89,6 +93,12 @@ impl PersistentStorage {
         self.dirty = true;
     }
 
+    /// Add a file with path metadata
+    pub fn add_file(&mut self, path: &str, content: &str) {
+        self.index.add_file(path, content);
+        self.dirty = true;
+    }
+
     /// Search for a phrase
     pub fn phrase_search(&self, query: &[String]) -> Vec<crate::MatchResult> {
         self.index.phrase_search(query)
@@ -107,6 +117,11 @@ impl PersistentStorage {
     /// Get unique token count
     pub fn unique_tokens(&self) -> usize {
         self.index.unique_tokens()
+    }
+
+    /// Get total file count
+    pub fn total_files(&self) -> usize {
+        self.index.file_index.files.len()
     }
 
     /// Save index to disk (synchronous)
@@ -199,11 +214,13 @@ impl PersistentStorage {
                     HashMap::new()
                 };
 
+            let file_index = persistent.file_index.clone().unwrap_or_default();
             self.index = VibeIndex::from_persistent(
                 lexicon,
                 token_positions,
                 token_sequence,
                 persistent.total_tokens as usize,
+                file_index,
             );
         } else {
             // v1/v2/v3: legacy string-based format
@@ -289,6 +306,7 @@ impl PersistentStorage {
             compressed_tokens: Some(compressed_tokens),
             lexicon: Some(lexicon),
             token_positions: Some(positions_map),
+            file_index: Some(index.file_index.clone()),
         };
 
         let json = serde_json::to_vec(&persistent)?;
@@ -514,5 +532,69 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].position, 0);
         assert_eq!(results[1].position, 5);
+    }
+
+    #[test]
+    fn test_file_index_persistence() {
+        let temp_dir = env::temp_dir().join("vibe_index_file_persist");
+        let _ = fs::remove_dir_all(&temp_dir);
+        let binding = temp_dir.join("file_index.bin");
+        let index_path = binding.to_str().unwrap();
+
+        // Create and save with file metadata
+        {
+            let mut storage = PersistentStorage::new(index_path);
+            storage.add_file(
+                "src/auth.rs",
+                "fn authenticate(user: &str) -> Result<(), Error> {\n    Ok(())\n}\n",
+            );
+            storage.add_file(
+                "src/main.rs",
+                "fn main() {\n    let x = 42;\n}\n",
+            );
+            storage.save().unwrap();
+        }
+
+        // Load and verify file metadata is restored
+        let loaded = PersistentStorage::load(index_path);
+        assert_eq!(loaded.index.file_index.files.len(), 2);
+        assert_eq!(loaded.index.file_index.files[0].path, "src/auth.rs");
+        assert_eq!(loaded.index.file_index.files[1].path, "src/main.rs");
+
+        // Verify file info is available in search results
+        let results = loaded.phrase_search(&["fn".into(), "authenticate".into()]);
+        assert_eq!(results.len(), 1);
+        assert!(results[0].file_path.is_some());
+        assert_eq!(results[0].file_path.as_deref(), Some("src/auth.rs"));
+        assert!(results[0].line_number.is_some());
+        assert_eq!(results[0].line_number.unwrap(), 1);
+        assert!(results[0].line_content.is_some());
+        assert!(results[0].line_content.as_deref().unwrap().contains("authenticate"));
+    }
+
+    #[test]
+    fn test_legacy_load_without_file_index() {
+        let temp_dir = env::temp_dir().join("vibe_index_legacy_no_file");
+        let _ = fs::remove_dir_all(&temp_dir);
+        let binding = temp_dir.join("legacy.bin");
+        let index_path = binding.to_str().unwrap();
+
+        // Create and save WITHOUT file metadata (simulate old format)
+        {
+            let mut storage = PersistentStorage::new(index_path);
+            for token in ["hello", "world", "test"] {
+                storage.add_token(token);
+            }
+            storage.save().unwrap();
+        }
+
+        // Load should still work (file_index will be empty)
+        let loaded = PersistentStorage::load(index_path);
+        assert_eq!(loaded.total_tokens(), 3);
+        assert_eq!(loaded.index.file_index.files.len(), 0);
+
+        // Search should still work
+        let results = loaded.search("hello world");
+        assert!(!results.is_empty());
     }
 }

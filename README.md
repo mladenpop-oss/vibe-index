@@ -41,6 +41,17 @@ Real codebase (vibe-index itself, 15.8K tokens, 0.14 MB memory):
 | "phrase search function" (NL) | 714 µs |
 | "pharse searsh" (fuzzy, 2 typos) | 490 µs |
 
+File-aware search with metadata (file_path, line_number, line_content):
+
+| Operation | Latency |
+|-----------|---------|
+| Phrase search (10 files) | 16.2 µs |
+| Phrase search (100 files) | 175 µs |
+| Phrase search (500 files) | 916 µs |
+| Add file (10 files) | 657 µs |
+| Add file (500 files) | 33.1 ms |
+| Persist + reload (100 files) | 147 µs |
+
 ## Why
 
 Every LLM query pays for context it doesn't need. A 7B model processes ~1.5KB per token in KV cache. Injecting 4K tokens of context instead of 300 relevant tokens wastes 5.5GB of VRAM and adds 30+ seconds of inference time.
@@ -48,9 +59,10 @@ Every LLM query pays for context it doesn't need. A 7B model processes ~1.5KB pe
 Vibe Index solves this by:
 
 1. **Exact positional lookup** — find `fn authenticate` at line 42, not "somewhere in chunk 3"
-2. **Minimal context injection** — inject ±50 tokens around the match, not 1024-token chunks
-3. **Typo tolerance** — "proces" still finds "process" in 2µs via bigram prefiltering
-4. **Hybrid with BM25** — BM25 finds relevant documents, Vibe pinpoints exact lines within them
+2. **File-aware search** — results include `file_path`, `line_number`, and `line_content`
+3. **Minimal context injection** — inject ±50 tokens around the match, not 1024-token chunks
+4. **Typo tolerance** — "proces" still finds "process" in 2µs via bigram prefiltering
+5. **Hybrid with BM25** — BM25 finds relevant documents, Vibe pinpoints exact lines within them
 
 ## Quick Start
 
@@ -63,14 +75,16 @@ use vibe_index::VibeIndex;
 
 let mut index = VibeIndex::new();
 
-// Index tokens
-for token in &["fn", "authenticate", "(", "user", ":", "&str", ")"] {
-    index.add_token(token);
+// Index a file with metadata (preferred for source code)
+index.add_file("src/auth.rs", r#"
+fn authenticate(user: &str) -> Result<(), Error> {
+    Ok(())
 }
+"#);
 
-// Exact phrase search
+// Exact phrase search — returns file_path, line_number, line_content
 let results = index.phrase_search(&["fn".into(), "authenticate".into()]);
-// → [MatchResult { position: 0, confidence: 1.0, ... }]
+// → [MatchResult { position: 0, file_path: "src/auth.rs", line_number: 2, ... }]
 
 // Unified search: NL → phrase + fuzzy → ranked results
 let results = index.search("where is the authenticate function");
@@ -133,11 +147,12 @@ Vibe Index is 100-1000x faster than embedding search and provides exact position
 |--------|---------|
 | `VibeIndex` | Core engine: index, phrase search, fuzzy search, unified search |
 | `TokenLexicon` | u32 ID ↔ String mapping + bigram index for fast fuzzy prefiltering |
+| `file_index` | File metadata: paths, content, line offsets, token-to-line mapping, persistence |
 | `query_parser` | NL → search phrases: splits camelCase, snake_case, `::` paths, strips stop words |
 | `bm25` | Lightweight BM25 scorer for document-level candidate ranking |
 | `hybrid_search` | BM25 candidates → Vibe Index exact position validation |
 | `hot_cold` | In-memory hot buffer + disk-backed cold segments |
-| `persistent_storage` | Gzip-compressed token sequences + serialized bitmaps, v4 format |
+| `persistent_storage` | Gzip-compressed token sequences + serialized bitmaps + file metadata |
 | `prompt_injector` | Context window builder: search → filter → extract windows → build prompt |
 | `llama_cpp` | Full pipeline: index → search → build prompt → llama.cpp completion |
 | `vllm` | Hybrid search + context budget + output validation + confidence feedback |
@@ -179,11 +194,13 @@ python mcp_server.py
 
 | Tool | Description |
 |------|-------------|
-| `index_text` | Index text content into the Vibe Index |
-| `phrase_search` | Exact phrase search with positional results |
-| `fuzzy_search` | Typo-tolerant search (Levenshtein distance) |
-| `search` | Unified natural language search |
-| `get_stats` | Index statistics (positions, tokens, memory) |
+| `index_text` | Index raw text content into the Vibe Index |
+| `index_file` | Index a file with path metadata (preserves file boundaries, enables line number lookup) |
+| `phrase_search` | Exact phrase search with positional results — ranked by confidence |
+| `fuzzy_search` | Typo-tolerant search (Levenshtein distance) — ranked by confidence |
+| `search` | Unified natural language search — ranked by confidence |
+| `get_file_content` | Get the full content of an indexed file by path |
+| `get_stats` | Index statistics (positions, tokens, memory, file count) |
 | `clear_index` | Reset the index to empty state |
 
 ### OpenCode Desktop Configuration
@@ -219,7 +236,10 @@ Add to `~/.config/opencode/opencode.jsonc` or `%APPDATA%\opencode\opencode.jsonc
 ### Example Usage
 
 ```json
-// Index text
+// Index a file with metadata (preferred)
+{"name": "index_file", "arguments": {"file_path": "src/main.rs", "content": "fn main() { let x = 42; }"}}
+
+// Index raw text (legacy)
 {"name": "index_text", "arguments": {"text": "fn main() { let x = 42; }"}}
 
 // Search
@@ -230,7 +250,22 @@ Add to `~/.config/opencode/opencode.jsonc` or `%APPDATA%\opencode\opencode.jsonc
 
 // Fuzzy search (1 typo tolerance)
 {"name": "fuzzy_search", "arguments": {"query": "mian", "max_distance": 1}}
+
+// Get file content
+{"name": "get_file_content", "arguments": {"file_path": "src/auth.rs"}}
 ```
+
+## Recent Updates
+
+### v0.1.1 — Performance & UX Improvements
+
+- **Binary search for file lookups** — `O(log n)` lookup instead of `O(n)` linear scan. 2.5x faster at 100+ files.
+- **Relevance ranking** — search results sorted by confidence (highest first), grouped by file.
+- **`get_file_content` MCP tool** — retrieve full content of indexed files by path.
+
+## Author
+
+**Mladen Popović** — creator & sole maintainer
 
 ## Limitations
 

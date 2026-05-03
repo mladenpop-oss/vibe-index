@@ -7,6 +7,9 @@ pub struct MatchResult {
     pub position: usize,
     pub context: String,
     pub confidence: f64,
+    pub file_path: Option<String>,
+    pub line_number: Option<usize>,
+    pub line_content: Option<String>,
 }
 
 /// Bidirectional token lexicon: maps u32 ID <-> String token.
@@ -110,6 +113,8 @@ pub struct VibeIndex {
     pub token_positions: HashMap<u32, RoaringBitmap>,
     pub token_sequence: Vec<u32>,
     position: usize,
+    /// File tracking: maps token positions to file metadata
+    pub file_index: crate::file_index::FileIndex,
 }
 
 impl Default for VibeIndex {
@@ -125,9 +130,39 @@ impl VibeIndex {
             token_positions: HashMap::new(),
             token_sequence: Vec::new(),
             position: 0,
+            file_index: crate::file_index::FileIndex::new(),
         }
     }
 
+    /// Add a file to the index with metadata
+    pub fn add_file(&mut self, path: &str, content: &str) {
+        let token_start = self.position;
+        let tokens: Vec<String> = content
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
+        
+        for token in &tokens {
+            let id = self.lexicon.get_or_insert(token);
+            self.token_positions
+                .entry(id)
+                .or_default()
+                .push(self.position as u32);
+            self.token_sequence.push(id);
+            self.position += 1;
+        }
+        
+        let token_end = self.position;
+        self.file_index.add_file(
+            path.to_string(),
+            content.to_string(),
+            token_start,
+            token_end,
+        );
+    }
+
+    /// Add a single token (legacy method, no file tracking)
     pub fn add_token(&mut self, token: &str) {
         let id = self.lexicon.get_or_insert(token);
         self.token_positions
@@ -216,10 +251,23 @@ impl VibeIndex {
                 } else {
                     format!("[POS {}] matched: '{}'", pos, query_str.join(" "))
                 };
+                let mut file_path = None;
+                let mut line_number = None;
+                let mut line_content = None;
+                if let Some((file_idx, path, lc)) = self.file_index.get_file_info(pos) {
+                    file_path = Some(path);
+                    if let Some((ln, _)) = self.file_index.files.get(file_idx).and_then(|f| f.token_to_line(pos)) {
+                        line_number = Some(ln);
+                        line_content = Some(lc);
+                    }
+                }
                 MatchResult {
                     position: pos,
                     context,
                     confidence: 1.0,
+                    file_path,
+                    line_number,
+                    line_content,
                 }
             })
             .collect()
@@ -258,13 +306,27 @@ impl VibeIndex {
             let distance = levenshtein(query, stored_token);
             if distance <= max_distance && distance > 0 {
                 for pos in bitmap.iter() {
+                    let pos_usize = pos as usize;
+                    let mut file_path = None;
+                    let mut line_number = None;
+                    let mut line_content = None;
+                    if let Some((file_idx, path, lc)) = self.file_index.get_file_info(pos_usize) {
+                        file_path = Some(path);
+                        if let Some((ln, _)) = self.file_index.files.get(file_idx).and_then(|f| f.token_to_line(pos_usize)) {
+                            line_number = Some(ln);
+                            line_content = Some(lc);
+                        }
+                    }
                     results.push(MatchResult {
-                        position: pos as usize,
+                        position: pos_usize,
                         context: format!(
                             "[POS {}] fuzzy: '{}' (dist={}) -> '{}'",
                             pos, stored_token, distance, query
                         ),
                         confidence: 1.0 - (distance as f64 / (max_distance as f64 + 1.0)),
+                        file_path,
+                        line_number,
+                        line_content,
                     });
                 }
             }
@@ -341,12 +403,14 @@ impl VibeIndex {
         token_positions: HashMap<u32, RoaringBitmap>,
         token_sequence: Vec<u32>,
         position: usize,
+        file_index: crate::file_index::FileIndex,
     ) -> Self {
         Self {
             lexicon,
             token_positions,
             token_sequence,
             position,
+            file_index,
         }
     }
 
@@ -376,6 +440,7 @@ impl VibeIndex {
             token_positions: new_positions,
             token_sequence: new_sequence,
             position,
+            file_index: crate::file_index::FileIndex::new(),
         }
     }
 
@@ -440,6 +505,7 @@ fn min(a: usize, b: usize) -> usize {
 }
 
 pub mod bm25;
+pub mod file_index;
 pub mod hot_cold;
 pub mod hybrid_search;
 pub mod llama_cpp;
@@ -646,5 +712,50 @@ mod tests {
             results.is_empty() || results.iter().all(|r| r.confidence < 0.1),
             "Stop-word-only query should return minimal results"
         );
+    }
+
+    #[test]
+    fn test_add_file_with_tracking() {
+        let mut index = VibeIndex::new();
+        let content1 = "fn main() {\n    let x = 42;\n}\n";
+        let content2 = "fn helper() {\n    println!(\"hello\");\n}\n";
+        
+        index.add_file("src/lib.rs", content1);
+        index.add_file("src/main.rs", content2);
+        
+        assert_eq!(index.file_index.files.len(), 2);
+        assert_eq!(index.file_index.files[0].path, "src/lib.rs");
+        assert_eq!(index.file_index.files[1].path, "src/main.rs");
+        assert_eq!(index.total_positions(), content1.split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count() + 
+                                      content2.split(|c: char| !c.is_alphanumeric()).filter(|s| !s.is_empty()).count());
+    }
+
+    #[test]
+    fn test_phrase_search_with_file_info() {
+        let mut index = VibeIndex::new();
+        let content = "fn authenticate(user: &str) -> Result<(), Error> {\n    Ok(())\n}\n";
+        index.add_file("src/auth.rs", content);
+        
+        let results = index.phrase_search(&["fn".into(), "authenticate".into()]);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].position, 0);
+        assert!(results[0].file_path.is_some());
+        assert_eq!(results[0].file_path.as_deref(), Some("src/auth.rs"));
+        assert!(results[0].line_number.is_some());
+        assert_eq!(results[0].line_number.unwrap(), 1);
+        assert!(results[0].line_content.is_some());
+        assert!(results[0].line_content.as_deref().unwrap().contains("authenticate"));
+    }
+
+    #[test]
+    fn test_file_index_stats() {
+        let mut index = VibeIndex::new();
+        index.add_file("src/a.rs", "fn a() {}");
+        index.add_file("src/b.rs", "fn b() {}");
+        index.add_file("src/c.rs", "fn c() {}");
+        
+        let stats = index.file_index.stats();
+        assert_eq!(stats.total_files, 3);
+        assert!(stats.total_tokens > 0);
     }
 }
